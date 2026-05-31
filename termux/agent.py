@@ -8,7 +8,8 @@ import json
 import os
 import subprocess
 import sys
-import requests
+import urllib.request
+import urllib.error
 from datetime import datetime
 
 CONFIG_PATH = os.path.expanduser("~/.termux_ai_config.json")
@@ -136,17 +137,21 @@ def call_ai(messages, api_key, max_tokens=2048):
         "max_tokens": max_tokens
     }
     try:
-        resp = requests.post(API_URL, headers=headers, json=payload, timeout=30)
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
-    except requests.exceptions.ConnectionError:
-        return json.dumps({"error": "网络错误", "message": "无法连接到 API 服务器"})
-    except requests.exceptions.Timeout:
-        return json.dumps({"error": "超时", "message": "API 请求超时"})
-    except requests.exceptions.HTTPError as e:
-        if resp.status_code == 401:
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(API_URL, data=data, headers=headers)
+        resp = urllib.request.urlopen(req, timeout=30)
+        resp_data = json.loads(resp.read().decode("utf-8"))
+        return resp_data["choices"][0]["message"]["content"]
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        if e.code == 401:
             return json.dumps({"error": "API Key 无效", "message": "请在 App 设置中检查"})
-        return json.dumps({"error": f"HTTP {resp.status_code}", "message": str(e)})
+        return json.dumps({"error": f"HTTP {e.code}", "message": body})
+    except urllib.error.URLError as e:
+        reason = str(e.reason) if hasattr(e, 'reason') else str(e)
+        if "timed out" in reason.lower() or "timeout" in reason.lower():
+            return json.dumps({"error": "超时", "message": "API 请求超时"})
+        return json.dumps({"error": "网络错误", "message": reason})
     except Exception as e:
         return json.dumps({"error": "API 调用失败", "message": str(e)})
 
@@ -173,13 +178,18 @@ def exec_command(command, cwd):
 CONFIRM_PREFIX = "【已确认】"
 
 
-def main():
-    if len(sys.argv) < 2:
-        print(json.dumps({"error": "参数错误", "message": "用法：python agent.py '用户指令'"}))
-        sys.exit(1)
+INPUT_DIR = os.path.expanduser("~")
 
-    user_input = sys.argv[1]
-    api_key = sys.argv[2] if len(sys.argv) > 2 else get_api_key()
+def main():
+    try:
+        input_path = os.path.join(INPUT_DIR, "input.json")
+        with open(input_path) as f:
+            data = json.load(f)
+            user_input = data.get("input", "")
+            api_key = data.get("api_key", "")
+    except Exception:
+        print(json.dumps({"error": "输入错误", "message": "无法读取 input.json"}))
+        sys.exit(1)
 
     confirmed_cmd = ""
     if user_input.startswith(CONFIRM_PREFIX):

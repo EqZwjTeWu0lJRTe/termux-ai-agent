@@ -1,16 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-permission android:name="com.termux.permission.RUN_COMMAND"
-        tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-
-    <queries>
-        <package android:name="com.termux" />
-        <provider android:authorities="com.termux.files" />
-    </queries>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:allowBackup="true"
@@ -33,14 +27,6 @@
             android:name=".SettingsActivity"
             android:exported="false"
             android:label="@string/settings_title" />
-
-        <receiver
-            android:name=".MyResultReceiver"
-            android:exported="true" />
-
-        <receiver
-            android:name=".TestResultReceiver"
-            android:exported="true" />
 
     </application>
 
