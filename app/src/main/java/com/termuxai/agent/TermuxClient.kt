@@ -73,40 +73,57 @@ class TermuxClient(private val context: Context) {
                 activity.runOnUiThread { activity.showTestResult(msg, success) }
             }
             activity.runOnUiThread {
-                activity.showTestResult("⏳ 正在测试连接...", false)
-                // 超时保护：10秒无响应则显示超时
-                activity.testTimeoutHandler.postDelayed({
-                    if (TestResultReceiver.pendingCallback != null) {
-                        TestResultReceiver.pendingCallback = null
-                        activity.showTestResult("❌ 连接超时：Termux 未响应", false)
-                    }
-                }, 10000)
+                activity.showTestResult("⏳ 正在唤醒 Termux...", false)
             }
         }
 
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            (System.currentTimeMillis() + 9999).toInt(),
-            Intent(context, TestResultReceiver::class.java),
-            pendingIntentFlags()
-        )
-
-        val intent = Intent("com.termux.RUN_COMMAND").apply {
+        // 先发一个 background 命令唤醒 Termux 进程
+        val wakeIntent = Intent("com.termux.RUN_COMMAND").apply {
             setClassName("com.termux", "com.termux.app.RunCommandService")
             putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash")
-            putExtra(
-                "com.termux.RUN_COMMAND_ARGUMENTS",
-                arrayOf("-c", "echo hello")
-            )
-            putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", pendingIntent)
+            putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", "echo wake"))
+            putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
         }
 
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
         try {
-            context.startService(intent)
+            context.startService(wakeIntent)
+            // 等 800ms 让 Termux 完成启动，再发带 PendingIntent 的测试
+            handler.postDelayed({
+                val pendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    (System.currentTimeMillis() + 9999).toInt(),
+                    Intent(context, TestResultReceiver::class.java),
+                    pendingIntentFlags()
+                )
+
+                val testIntent = Intent("com.termux.RUN_COMMAND").apply {
+                    setClassName("com.termux", "com.termux.app.RunCommandService")
+                    putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash")
+                    putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", "echo hello"))
+                    putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", pendingIntent)
+                }
+
+                try {
+                    context.startService(testIntent)
+                } catch (e: Exception) {
+                    TestResultReceiver.pendingCallback = null
+                    activity?.showTestResult("❌ 无法启动 Termux 服务：${e.message}", false)
+                }
+            }, 800)
+
+            activity?.runOnUiThread {
+                activity.testTimeoutHandler.postDelayed({
+                    if (TestResultReceiver.pendingCallback != null) {
+                        TestResultReceiver.pendingCallback = null
+                        activity.showTestResult("❌ 连接超时：Termux 未响应（10s）", false)
+                    }
+                }, 10800)
+            }
         } catch (e: Exception) {
             TestResultReceiver.pendingCallback = null
             activity?.runOnUiThread {
-                activity.showTestResult("❌ 无法启动 Termux 服务：${e.message}", false)
+                activity.showTestResult("❌ 无法唤醒 Termux：${e.message}\n\n请先手动打开 Termux 一次", false)
             }
         }
     }
