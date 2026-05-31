@@ -44,7 +44,7 @@ class SettingsActivity : AppCompatActivity() {
             val stderr = intent.getStringExtra("stderr") ?: ""
             val exitCode = intent.getIntExtra("exit_code", -1)
 
-            if (exitCode == 0 && stdout.trim() == "hello") {
+            if (exitCode == 0 && stdout.contains("hello")) {
                 statusText.text = "✅ Termux 连接测试成功！"
                 statusText.setTextColor(0xFF4CAF50.toInt())
             } else {

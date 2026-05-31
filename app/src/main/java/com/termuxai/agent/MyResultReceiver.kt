@@ -16,22 +16,18 @@ class MyResultReceiver : BroadcastReceiver() {
         var stderr = ""
         var exitCode = -1
 
-        fun extractFromBundle(bundle: android.os.Bundle) {
-            stdout = bundle.getString("stdout") ?: ""
-            stderr = bundle.getString("stderr") ?: ""
-            exitCode = bundle.getInt("exit_code", -1)
-            if (stdout.isEmpty() && stderr.isEmpty()) {
-                val sb = StringBuilder("bundle keys:")
-                bundle.keySet().forEach { sb.append("\n  $it = ${bundle.get(it)}") }
-                stdout = sb.toString()
-            }
-        }
-
         var found = false
         for (key in listOf("com.termux.EXTRA_PLUGIN_RESULT_BUNDLE", "result", "RESULT")) {
             val bundle = intent.getBundleExtra(key)
             if (bundle != null) {
-                extractFromBundle(bundle)
+                stdout = bundle.getString("stdout") ?: ""
+                stderr = bundle.getString("stderr") ?: ""
+                val ec = bundle.get("exitCode")
+                exitCode = when (ec) {
+                    is Int -> ec
+                    is String -> ec.toIntOrNull() ?: -1
+                    else -> -1
+                }
                 found = true
                 break
             }
