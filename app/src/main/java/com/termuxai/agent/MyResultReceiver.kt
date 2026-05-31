@@ -16,12 +16,27 @@ class MyResultReceiver : BroadcastReceiver() {
         var stderr = ""
         var exitCode = -1
 
-        val bundle = intent.getBundleExtra("com.termux.EXTRA_PLUGIN_RESULT_BUNDLE")
-        if (bundle != null) {
-            stdout = bundle.getString("com.termux.EXTRA_PLUGIN_RESULT_BUNDLE_STDOUT") ?: ""
-            stderr = bundle.getString("com.termux.EXTRA_PLUGIN_RESULT_BUNDLE_STDERR") ?: ""
-            exitCode = bundle.getInt("com.termux.EXTRA_PLUGIN_RESULT_BUNDLE_EXIT_CODE", -1)
-        } else {
+        fun extractFromBundle(bundle: android.os.Bundle) {
+            stdout = bundle.getString("stdout") ?: ""
+            stderr = bundle.getString("stderr") ?: ""
+            exitCode = bundle.getInt("exit_code", -1)
+            if (stdout.isEmpty() && stderr.isEmpty()) {
+                val sb = StringBuilder("bundle keys:")
+                bundle.keySet().forEach { sb.append("\n  $it = ${bundle.get(it)}") }
+                stdout = sb.toString()
+            }
+        }
+
+        var found = false
+        for (key in listOf("com.termux.EXTRA_PLUGIN_RESULT_BUNDLE", "result", "RESULT")) {
+            val bundle = intent.getBundleExtra(key)
+            if (bundle != null) {
+                extractFromBundle(bundle)
+                found = true
+                break
+            }
+        }
+        if (!found) {
             val jsonStr = intent.getStringExtra("com.termux.EXTRA_PLUGIN_RESULT_BUNDLE")
             if (jsonStr != null) {
                 try {

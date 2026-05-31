@@ -16,12 +16,28 @@ class TestResultReceiver : BroadcastReceiver() {
         var stderr = ""
         var exitCode = -1
 
-        val bundle = intent.getBundleExtra("com.termux.EXTRA_PLUGIN_RESULT_BUNDLE")
-        if (bundle != null) {
-            stdout = bundle.getString("com.termux.EXTRA_PLUGIN_RESULT_BUNDLE_STDOUT") ?: ""
-            stderr = bundle.getString("com.termux.EXTRA_PLUGIN_RESULT_BUNDLE_STDERR") ?: ""
-            exitCode = bundle.getInt("com.termux.EXTRA_PLUGIN_RESULT_BUNDLE_EXIT_CODE", -1)
-        } else {
+        fun extractFromBundle(bundle: android.os.Bundle) {
+            val keys = bundle.keySet()
+            stdout = bundle.getString("stdout") ?: ""
+            stderr = bundle.getString("stderr") ?: ""
+            exitCode = bundle.getInt("exit_code", -1)
+            if (stdout.isEmpty() && stderr.isEmpty() && keys.size > 0) {
+                val sb = StringBuilder("bundle keys:")
+                keys.forEach { sb.append("\n  $it = ${bundle.get(it)}") }
+                stdout = sb.toString()
+            }
+        }
+
+        var found = false
+        for (key in listOf("com.termux.EXTRA_PLUGIN_RESULT_BUNDLE", "result", "RESULT")) {
+            val bundle = intent.getBundleExtra(key)
+            if (bundle != null) {
+                extractFromBundle(bundle)
+                found = true
+                break
+            }
+        }
+        if (!found) {
             val jsonStr = intent.getStringExtra("com.termux.EXTRA_PLUGIN_RESULT_BUNDLE")
             if (jsonStr != null) {
                 try {
@@ -29,16 +45,18 @@ class TestResultReceiver : BroadcastReceiver() {
                     stdout = json.optString("stdout", "")
                     stderr = json.optString("stderr", "")
                     exitCode = json.optInt("exit_code", -1)
+                    found = true
                 } catch (_: Exception) {
                     stdout = jsonStr
                 }
-            } else {
-                val debug = StringBuilder("intent extras:")
-                intent.extras?.keySet()?.forEach { k ->
-                    debug.append("\n  $k = ${intent.extras?.get(k)}")
-                }
-                stdout = debug.toString()
             }
+        }
+        if (!found) {
+            val sb = StringBuilder("intent extras:")
+            intent.extras?.keySet()?.forEach { k ->
+                sb.append("\n  $k = ${intent.extras?.get(k)}")
+            }
+            stdout = sb.toString()
         }
 
         val resultIntent = Intent(ACTION_TEST_RESULT).apply {
