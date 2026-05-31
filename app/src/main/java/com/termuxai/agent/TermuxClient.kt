@@ -46,11 +46,16 @@ class TermuxClient(private val context: Context) {
         }
         try {
             context.startService(intent)
+            return
         } catch (_: Exception) {
-            context.startActivity(
-                context.packageManager.getLaunchIntentForPackage("com.termux")
-                    ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
+            // fall through to startActivity
+        }
+        try {
+            val launch = context.packageManager.getLaunchIntentForPackage("com.termux")
+            if (launch != null) {
+                context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        } catch (_: Exception) {
         }
     }
 
