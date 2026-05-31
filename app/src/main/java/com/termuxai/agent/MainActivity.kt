@@ -4,11 +4,14 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import org.json.JSONObject
@@ -23,6 +26,26 @@ class MainActivity : AppCompatActivity() {
     private val messages = mutableListOf<ChatMessage>()
     private lateinit var adapter: ChatAdapter
     private lateinit var termuxClient: TermuxClient
+
+    private var pendingMessage: String? = null
+
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            pendingMessage?.let {
+                doExecute(it)
+                pendingMessage = null
+            }
+        } else {
+            adapter.removeLoadingIndicator()
+            adapter.addMessage(ChatMessage(
+                "❌ 权限被拒绝，无法连接 Termux。\n\n请进入：系统设置 → 应用 → Termux AI Agent → 权限 → 打开「与 Termux 通信」开关",
+                isUser = false
+            ))
+            scrollToBottom()
+        }
+    }
 
     private val resultReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -92,6 +115,18 @@ class MainActivity : AppCompatActivity() {
         adapter.addMessage(ChatMessage("AI 正在思考...", isUser = false, isLoading = true))
         scrollToBottom()
 
+        if (ContextCompat.checkSelfPermission(this, TermuxClient.PERMISSION)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingMessage = text
+            permissionLauncher.launch(TermuxClient.PERMISSION)
+            return
+        }
+
+        doExecute(text)
+    }
+
+    private fun doExecute(text: String) {
         termuxClient.execute(text)
     }
 
@@ -100,7 +135,7 @@ class MainActivity : AppCompatActivity() {
             val json = JSONObject(raw)
 
             if (json.has("error")) {
-                return "⚠️ 配置错误\n\n${json.optString("message", "")}"
+                return "⚠️ ${json.optString("error", "")}\n\n${json.optString("message", "")}"
             }
 
             val command = json.optString("command", "")

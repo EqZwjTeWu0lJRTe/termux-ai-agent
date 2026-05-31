@@ -5,12 +5,15 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
@@ -23,6 +26,17 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
 
     private lateinit var encryptedPrefs: SharedPreferences
+
+    private val testPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            doTestConnection()
+        } else {
+            statusText.text = "❌ 权限被拒绝，无法连接 Termux"
+            statusText.setTextColor(0xFFF44336.toInt())
+        }
+    }
 
     private val testReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -65,13 +79,9 @@ class SettingsActivity : AppCompatActivity() {
 
         loadSettings()
 
-        saveButton.setOnClickListener {
-            saveSettings()
-        }
+        saveButton.setOnClickListener { saveSettings() }
 
-        testButton.setOnClickListener {
-            testConnection()
-        }
+        testButton.setOnClickListener { testConnection() }
     }
 
     override fun onResume() {
@@ -114,14 +124,26 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun testConnection() {
+        if (ContextCompat.checkSelfPermission(this, TermuxClient.PERMISSION)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            testPermissionLauncher.launch(TermuxClient.PERMISSION)
+            return
+        }
+        doTestConnection()
+    }
+
+    private fun doTestConnection() {
         statusText.text = "⏳ 正在测试连接..."
         statusText.setTextColor(0xFFFF9800.toInt())
 
         val termuxClient = TermuxClient(this)
         termuxClient.testConnection { success, message ->
             if (!success) {
-                statusText.text = "❌ $message"
-                statusText.setTextColor(0xFFF44336.toInt())
+                runOnUiThread {
+                    statusText.text = "❌ $message"
+                    statusText.setTextColor(0xFFF44336.toInt())
+                }
             }
         }
     }

@@ -6,6 +6,10 @@ import android.content.Intent
 
 class TermuxClient(private val context: Context) {
 
+    companion object {
+        const val PERMISSION = "com.termux.permission.RUN_COMMAND"
+    }
+
     private val prefs by lazy {
         context.getSharedPreferences("config", Context.MODE_PRIVATE)
     }
