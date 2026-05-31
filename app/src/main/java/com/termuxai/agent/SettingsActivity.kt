@@ -6,8 +6,6 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -26,9 +24,6 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
 
     private lateinit var encryptedPrefs: SharedPreferences
-
-    val testTimeoutHandler = Handler(Looper.getMainLooper())
-    var pendingTest = false
 
     private val testPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -65,17 +60,9 @@ class SettingsActivity : AppCompatActivity() {
         loadSettings()
 
         saveButton.setOnClickListener { saveSettings() }
-
         testButton.setOnClickListener { testConnection() }
-    }
 
-    override fun onResume() {
-        super.onResume()
-        if (pendingTest) {
-            pendingTest = false
-            testTimeoutHandler.removeCallbacksAndMessages(null)
-            doTestConnection()
-        }
+        AgentUpdater(this).pushIfNeeded()
     }
 
     private fun loadSettings() {
@@ -117,13 +104,31 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun doTestConnection() {
-        statusText.text = "⏳ 正在测试连接..."
-        statusText.setTextColor(0xFFFF9800.toInt())
-
-        TermuxClient(this).testConnection()
+        val client = TermuxClient(this)
+        if (client.isTermuxRunning()) {
+            statusText.text = "⏳ 正在测试连接..."
+            statusText.setTextColor(0xFFFF9800.toInt())
+            client.testConnection { ok ->
+                runOnUiThread {
+                    statusText.text = if (ok) "✅ Termux 连接测试成功！"
+                    else "❌ 测试失败"
+                    statusText.setTextColor(if (ok) Color.rgb(76, 175, 80) else Color.rgb(244, 67, 54))
+                }
+            }
+        } else {
+            statusText.text = "⚠️ 请先打开 Termux，检测到后将自动测试"
+            statusText.setTextColor(0xFFFF9800.toInt())
+            client.testConnection { ok ->
+                runOnUiThread {
+                    statusText.text = if (ok) "✅ Termux 连接测试成功！"
+                    else "❌ 测试失败"
+                    statusText.setTextColor(if (ok) Color.rgb(76, 175, 80) else Color.rgb(244, 67, 54))
+                }
+            }
+        }
     }
 
-    fun showTestResult(msg: String, success: Boolean) {
+    private fun showTestResult(msg: String, success: Boolean) {
         statusText.text = msg
         statusText.setTextColor(if (success) Color.rgb(76, 175, 80) else Color.rgb(244, 67, 54))
     }

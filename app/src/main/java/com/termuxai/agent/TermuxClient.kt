@@ -66,26 +66,28 @@ class TermuxClient(private val context: Context) {
         }, 3000)
     }
 
-    fun testConnection() {
-        val activity = context as? SettingsActivity
-        if (activity != null) {
-            TestResultReceiver.pendingCallback = { exitCode, stdout, stderr ->
-                activity.pendingTest = false
-                val success = exitCode == 0 && stdout.contains("hello")
-                val msg = if (success) "✅ Termux 连接测试成功！"
-                else "❌ 测试失败：${if (stderr.isNotBlank()) stderr else stdout} (exit code: $exitCode)"
-                activity.runOnUiThread { activity.showTestResult(msg, success) }
-            }
+    fun testConnection(onDone: ((Boolean) -> Unit)? = null) {
+        TestResultReceiver.pendingCallback = { exitCode, stdout, stderr ->
+            val ok = exitCode == 0 && stdout.contains("hello")
+            onDone?.invoke(ok)
         }
 
         if (isTermuxRunning() && tryRunCommand(buildWakeIntent())) {
-            doTestIntent(activity)
+            doTestIntent()
             return
         }
 
-        activity?.runOnUiThread {
-            activity.showTestResult("ℹ️ 请手动打开 Termux", false)
-        }
+        waitForTermuxForTest()
+    }
+
+    private fun waitForTermuxForTest() {
+        handler.postDelayed({
+            if (isTermuxRunning() && tryRunCommand(buildWakeIntent())) {
+                doTestIntent()
+            } else {
+                waitForTermuxForTest()
+            }
+        }, 2000)
     }
 
     private fun tryRunCommand(intent: Intent): Boolean {
@@ -113,7 +115,7 @@ class TermuxClient(private val context: Context) {
         }
     }
 
-    private fun doTestIntent(activity: SettingsActivity?) {
+    private fun doTestIntent() {
         handler.postDelayed({
             val pendingIntent = PendingIntent.getBroadcast(
                 context,
@@ -127,22 +129,7 @@ class TermuxClient(private val context: Context) {
                 putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", "echo hello"))
                 putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", pendingIntent)
             }
-            if (!tryRunCommand(intent)) {
-                TestResultReceiver.pendingCallback = null
-                activity?.runOnUiThread {
-                    activity.showTestResult("❌ 无法启动 Termux 服务", false)
-                }
-            }
+            tryRunCommand(intent)
         }, 2000)
-
-        activity?.runOnUiThread {
-            activity.testTimeoutHandler.postDelayed({
-                if (TestResultReceiver.pendingCallback != null) {
-                    TestResultReceiver.pendingCallback = null
-                    activity.pendingTest = false
-                    activity.showTestResult("❌ 连接超时：Termux 未响应", false)
-                }
-            }, 12000)
-        }
     }
 }
