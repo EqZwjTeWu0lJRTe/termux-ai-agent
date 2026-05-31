@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
+import androidx.appcompat.app.AlertDialog
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -47,6 +48,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var pendingConfirmCommand: String? = null
+
     private val resultReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val stdout = intent.getStringExtra("stdout") ?: ""
@@ -56,7 +59,14 @@ class MainActivity : AppCompatActivity() {
 
             val raw = if (stderr.isNotBlank()) "$stdout\n$stderr" else stdout
             val displayText = parseResponse(raw)
-            adapter.addMessage(ChatMessage(displayText, isUser = false))
+
+            if (pendingConfirmCommand != null) {
+                adapter.addMessage(ChatMessage(displayText, isUser = false))
+                showConfirmDialog(pendingConfirmCommand!!)
+                pendingConfirmCommand = null
+            } else {
+                adapter.addMessage(ChatMessage(displayText, isUser = false))
+            }
             scrollToBottom()
         }
     }
@@ -138,6 +148,11 @@ class MainActivity : AppCompatActivity() {
                 return "⚠️ ${json.optString("error", "")}\n\n${json.optString("message", "")}"
             }
 
+            if (json.optBoolean("need_confirm", false)) {
+                val command = json.optString("command", "")
+                pendingConfirmCommand = command
+            }
+
             val command = json.optString("command", "")
             val output = json.optString("output", "")
             val summary = json.optString("summary", "")
@@ -161,6 +176,24 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             if (raw.isNotBlank()) raw else "命令执行完成（无输出）"
         }
+    }
+
+    private fun showConfirmDialog(command: String) {
+        AlertDialog.Builder(this)
+            .setTitle("⚠️ 确认执行")
+            .setMessage("此操作需要你的确认：\n\n```bash\n$command\n```")
+            .setPositiveButton("执行") { _, _ ->
+                adapter.addMessage(ChatMessage("✅ 已确认执行", isUser = true))
+                adapter.addMessage(ChatMessage("AI 正在思考...", isUser = false, isLoading = true))
+                scrollToBottom()
+                doExecute("【已确认】$command")
+            }
+            .setNegativeButton("取消") { _, _ ->
+                adapter.addMessage(ChatMessage("❌ 已取消", isUser = false))
+                scrollToBottom()
+            }
+            .setCancelable(false)
+            .show()
     }
 
     private fun scrollToBottom() {

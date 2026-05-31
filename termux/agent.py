@@ -170,6 +170,9 @@ def exec_command(command, cwd):
         return f"执行失败：{e}", -1
 
 
+CONFIRM_PREFIX = "【已确认】"
+
+
 def main():
     if len(sys.argv) < 2:
         print(json.dumps({"error": "参数错误", "message": "用法：python agent.py '用户指令'"}))
@@ -177,6 +180,11 @@ def main():
 
     user_input = sys.argv[1]
     api_key = sys.argv[2] if len(sys.argv) > 2 else get_api_key()
+
+    confirmed_cmd = ""
+    if user_input.startswith(CONFIRM_PREFIX):
+        confirmed_cmd = user_input[len(CONFIRM_PREFIX):].strip()
+        user_input = confirmed_cmd
 
     if not api_key:
         print(json.dumps({
@@ -186,8 +194,24 @@ def main():
         return
 
     state = load_state()
-    context = build_context(state, user_input)
 
+    if confirmed_cmd:
+        out, code = exec_command(confirmed_cmd, state.get("cwd", os.path.expanduser("~")))
+        update_cwd(state, confirmed_cmd)
+        append_history(state, confirmed_cmd, out, code)
+        save_state(state)
+        summary = call_ai(
+            [{"role": "system", "content": "用简洁的中文总结命令执行结果。"},
+             {"role": "user", "content": f"命令：{confirmed_cmd}\n结果（exit code: {code}）：\n{out}\n\n请总结"}],
+            api_key
+        )
+        print(json.dumps({
+            "command": confirmed_cmd, "output": out, "summary": summary,
+            "exit_code": code, "need_confirm": False
+        }, ensure_ascii=False))
+        return
+
+    context = build_context(state, user_input)
     full_prompt = f"{SYSTEM_PROMPT}\n\n上下文：\n{context}"
 
     raw = call_ai(
@@ -283,6 +307,17 @@ def main():
         }, ensure_ascii=False))
         return
 
+    # 危险命令需要用户确认
+    if need_confirm:
+        print(json.dumps({
+            "command": command,
+            "output": "",
+            "summary": f"⚠️ 即将执行危险操作，请确认：\n\n```bash\n{command}\n```\n\n点击「执行」继续，点击「取消」放弃。",
+            "exit_code": 0,
+            "need_confirm": True
+        }, ensure_ascii=False))
+        return
+
     cwd = state.get("cwd", os.path.expanduser("~"))
     out, code = exec_command(command, cwd)
     update_cwd(state, command)
@@ -297,7 +332,7 @@ def main():
 
     print(json.dumps({
         "command": command, "output": out, "summary": summary,
-        "exit_code": code, "need_confirm": need_confirm
+        "exit_code": code, "need_confirm": False
     }, ensure_ascii=False))
 
 
