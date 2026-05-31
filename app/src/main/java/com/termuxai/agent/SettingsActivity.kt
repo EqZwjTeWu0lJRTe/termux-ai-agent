@@ -28,6 +28,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var encryptedPrefs: SharedPreferences
 
     val testTimeoutHandler = Handler(Looper.getMainLooper())
+    var pendingTest = false
 
     private val testPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -66,6 +67,15 @@ class SettingsActivity : AppCompatActivity() {
         saveButton.setOnClickListener { saveSettings() }
 
         testButton.setOnClickListener { testConnection() }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (pendingTest) {
+            pendingTest = false
+            testTimeoutHandler.removeCallbacksAndMessages(null)
+            doTestConnection()
+        }
     }
 
     private fun loadSettings() {
