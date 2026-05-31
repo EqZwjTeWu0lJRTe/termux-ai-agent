@@ -32,6 +32,12 @@ class TestResultReceiver : BroadcastReceiver() {
                 } catch (_: Exception) {
                     stdout = jsonStr
                 }
+            } else {
+                val debug = StringBuilder("intent extras:")
+                intent.extras?.keySet()?.forEach { k ->
+                    debug.append("\n  $k = ${intent.extras?.get(k)}")
+                }
+                stdout = debug.toString()
             }
         }
 
@@ -39,7 +45,6 @@ class TestResultReceiver : BroadcastReceiver() {
             putExtra("stdout", stdout)
             putExtra("stderr", stderr)
             putExtra("exit_code", exitCode)
-            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
         }
         context.sendBroadcast(resultIntent)
     }
