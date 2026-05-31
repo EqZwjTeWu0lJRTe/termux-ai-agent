@@ -96,18 +96,40 @@ class AiAgent(context: Context) {
         }
 
         val cwd = statePrefs.getString("cwd", "/storage/emulated/0") ?: "/storage/emulated/0"
-        val historyJson = statePrefs.getString("history", "[]") ?: "[]"
+        var historyJson = statePrefs.getString("history", "[]") ?: "[]"
         val turn = statePrefs.getInt("turn", 0)
-        Log.d(TAG, "cwd=$cwd, turn=$turn, history_size=${JSONArray(historyJson).length()}")
+
+        val history = JSONArray(historyJson)
+        if (history.length() > 0) {
+            var corrupted = false
+            var i = 0
+            while (i < history.length()) {
+                val msg = history.getJSONObject(i)
+                if (msg.optString("role", "") == "assistant") {
+                    val content = msg.optString("content", "")
+                    if (content.isNotBlank() && !content.trim().startsWith("{")) {
+                        corrupted = true
+                        break
+                    }
+                }
+                i++
+            }
+            if (corrupted) {
+                Log.w(TAG, "检测到历史格式损坏，自动清除")
+                statePrefs.edit().remove("history").putInt("turn", 0).apply()
+                historyJson = "[]"
+            }
+        }
+        val cleanHistory = JSONArray(historyJson)
+        Log.d(TAG, "cwd=$cwd, turn=$turn, history_size=${cleanHistory.length()}")
 
         val messages = JSONArray().apply {
             put(JSONObject().apply {
                 put("role", "system")
                 put("content", SYSTEM_PROMPT)
             })
-            val history = JSONArray(historyJson)
-            for (i in 0 until history.length()) {
-                put(history.getJSONObject(i))
+            for (i in 0 until cleanHistory.length()) {
+                put(cleanHistory.getJSONObject(i))
             }
             put(JSONObject().apply {
                 put("role", "user")
@@ -274,10 +296,10 @@ class AiAgent(context: Context) {
             put("role", "user")
             put("content", input)
         })
-        if (command.isNotEmpty()) {
+        if (raw.isNotBlank()) {
             history.put(JSONObject().apply {
                 put("role", "assistant")
-                put("content", "command: $command (exit: $exitCode)")
+                put("content", raw)
             })
         }
         while (history.length() > MAX_HISTORY * 2) {

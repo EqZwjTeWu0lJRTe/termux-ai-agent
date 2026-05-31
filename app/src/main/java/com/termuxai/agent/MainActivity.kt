@@ -139,45 +139,46 @@ class MainActivity : AppCompatActivity() {
 
         if (response.isNotBlank() && steps == null && command.isBlank()) return response
 
-        return buildString {
-            if (response.isNotBlank()) {
-                appendLine(response)
-                appendLine()
-            }
+        val sb = StringBuilder()
 
-            if (command.isNotBlank()) {
-                appendLine("```bash")
-                appendLine(command)
-                appendLine("```")
-                if (output.isNotBlank()) {
-                    appendLine("```")
-                    appendLine(output.take(1000))
-                    appendLine("```")
-                } else {
-                    appendLine("> 命令已执行，无输出")
-                }
-            }
+        if (response.isNotBlank()) {
+            sb.append(response).append("\n\n")
+        }
 
-            if (steps != null) {
-                for (i in 0 until steps.length()) {
-                    val step = steps.getJSONObject(i)
-                    val cmd = step.optString("cmd", "")
-                    val out = step.optString("output", "")
-                    if (cmd.isNotBlank()) {
-                        appendLine("**步骤 ${i+1}：**")
-                        appendLine("```bash")
-                        appendLine(cmd)
-                        appendLine("```")
-                        if (out.isNotBlank()) {
-                            appendLine("```")
-                            appendLine(out.take(500))
-                            appendLine("```")
-                        }
-                        appendLine()
+        if (command.isNotBlank()) {
+            sb.append("$ ").appendLine(command)
+            if (output.isNotBlank()) {
+                val lines = output.split("\n")
+                for (line in lines) {
+                    val clean = line.replace("\t", "  ")
+                    if (clean.isNotBlank()) {
+                        sb.append("  ").appendLine(clean)
                     }
                 }
             }
         }
+
+        if (steps != null) {
+            for (i in 0 until steps.length()) {
+                val step = steps.getJSONObject(i)
+                val cmd = step.optString("cmd", "")
+                val out = step.optString("output", "")
+                if (cmd.isNotBlank()) {
+                    sb.append("步骤 ${i+1}：")
+                    sb.append("$ ").appendLine(cmd)
+                    if (out.isNotBlank()) {
+                        for (line in out.split("\n")) {
+                            val clean = line.replace("\t", "  ")
+                            if (clean.isNotBlank()) {
+                                sb.append("  ").appendLine(clean)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return sb.toString().trimEnd()
     }
 
     private fun showConfirmDialog(command: String) {
