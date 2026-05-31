@@ -21,6 +21,9 @@ class TermuxClient(private val context: Context) {
             "/data/data/com.termux/files/home/agent.py"
         ) ?: "/data/data/com.termux/files/home/agent.py"
 
+    private val apiKey: String
+        get() = prefs.getString("api_key", "") ?: ""
+
     private fun pendingIntentFlags(): Int {
         val base = PendingIntent.FLAG_UPDATE_CURRENT
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -43,7 +46,7 @@ class TermuxClient(private val context: Context) {
             putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/python")
             putExtra(
                 "com.termux.RUN_COMMAND_ARGUMENTS",
-                arrayOf(scriptPath, userInput)
+                arrayOf(scriptPath, userInput, apiKey)
             )
             putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", pendingIntent)
         }

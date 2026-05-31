@@ -109,14 +109,18 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun saveSettings() {
+        val apiKey = apiKeyEditText.text.toString().trim()
+        val scriptPath = scriptPathEditText.text.toString().trim()
+
         encryptedPrefs.edit()
-            .putString("api_key", apiKeyEditText.text.toString().trim())
-            .putString("script_path", scriptPathEditText.text.toString().trim())
+            .putString("api_key", apiKey)
+            .putString("script_path", scriptPath)
             .apply()
 
         val regularPrefs = getSharedPreferences("config", Context.MODE_PRIVATE)
         regularPrefs.edit()
-            .putString("script_path", scriptPathEditText.text.toString().trim())
+            .putString("api_key", apiKey)
+            .putString("script_path", scriptPath)
             .apply()
 
         statusText.text = "✅ 设置已保存"

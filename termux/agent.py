@@ -86,7 +86,7 @@ def main():
         sys.exit(1)
 
     user_input = sys.argv[1]
-    api_key = get_api_key()
+    api_key = sys.argv[2] if len(sys.argv) > 2 else get_api_key()
 
     if not api_key:
         result = {
