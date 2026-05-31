@@ -25,6 +25,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var termuxClient: TermuxClient
     private var initialized = false
     private var pendingConfirmCommand: String? = null
+    private var lastSentText: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -80,11 +81,14 @@ class MainActivity : AppCompatActivity() {
             else -> null
         }
         if (!text.isNullOrBlank()) {
+            AdbInputReceiver.pendingMessage = null
             doSend(text)
         }
     }
 
     private fun doSend(text: String) {
+        if (text == lastSentText) return
+        lastSentText = text
         inputEditText.setText(text)
         sendMessage()
     }
@@ -99,15 +103,21 @@ class MainActivity : AppCompatActivity() {
         scrollToBottom()
 
         CoroutineScope(Dispatchers.Main).launch {
-            val raw = termuxClient.execute(text)
-            adapter.removeLoadingIndicator()
-            val displayText = parseResponse(raw)
-            if (pendingConfirmCommand != null) {
-                adapter.addMessage(ChatMessage(displayText, isUser = false))
-                showConfirmDialog(pendingConfirmCommand!!)
-                pendingConfirmCommand = null
-            } else {
-                adapter.addMessage(ChatMessage(displayText, isUser = false))
+            try {
+                val raw = termuxClient.execute(text)
+                adapter.removeLoadingIndicator()
+                val displayText = parseResponse(raw)
+                if (pendingConfirmCommand != null) {
+                    adapter.addMessage(ChatMessage(displayText, isUser = false))
+                    showConfirmDialog(pendingConfirmCommand!!)
+                    pendingConfirmCommand = null
+                } else {
+                    adapter.addMessage(ChatMessage(displayText, isUser = false))
+                }
+            } catch (e: Exception) {
+                adapter.removeLoadingIndicator()
+                adapter.addMessage(ChatMessage("❌ 错误：${e.message}", isUser = false))
+                android.util.Log.e("TermuxAI", "sendMessage error", e)
             }
             scrollToBottom()
         }
@@ -124,10 +134,33 @@ class MainActivity : AppCompatActivity() {
 
         val command = json.optString("command", "")
         val output = json.optString("output", "")
-        val summary = json.optString("summary", "")
         val response = json.optString("response", "")
+        val steps = json.optJSONArray("steps")
 
         if (response.isNotBlank()) return response
+
+        if (steps != null) {
+            return buildString {
+                for (i in 0 until steps.length()) {
+                    val step = steps.getJSONObject(i)
+                    val cmd = step.optString("cmd", "")
+                    val out = step.optString("output", "")
+                    val code = step.optInt("exit_code", -1)
+                    if (cmd.isNotBlank()) {
+                        appendLine("**步骤 ${i+1}：**")
+                        appendLine("```bash")
+                        appendLine(cmd)
+                        appendLine("```")
+                        if (out.isNotBlank()) {
+                            appendLine("```")
+                            appendLine(out.take(500))
+                            appendLine("```")
+                        }
+                        appendLine()
+                    }
+                }
+            }
+        }
 
         return buildString {
             if (command.isNotBlank()) {
@@ -137,12 +170,9 @@ class MainActivity : AppCompatActivity() {
                 appendLine()
             }
             if (output.isNotBlank()) {
-                appendLine("**执行结果：**")
-                appendLine(output)
-                appendLine()
-            }
-            if (summary.isNotBlank()) {
-                append(summary)
+                appendLine("```")
+                appendLine(output.take(1000))
+                appendLine("```")
             }
         }
     }

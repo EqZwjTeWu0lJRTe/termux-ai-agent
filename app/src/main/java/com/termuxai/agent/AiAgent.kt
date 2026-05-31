@@ -2,6 +2,7 @@ package com.termuxai.agent
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -14,36 +15,45 @@ import java.io.InputStreamReader
 class AiAgent(context: Context) {
 
     companion object {
+        private const val TAG = "TermuxAI"
         private const val API_URL = "https://api.deepseek.com/v1/chat/completions"
         private const val MODEL = "deepseek-chat"
         private const val STATE_PREFS = "agent_state"
         private const val MAX_HISTORY = 10
 
-        private const val SYSTEM_PROMPT = """你是 Android 终端中的 AI 助手，具备状态记忆和多步规划能力。
+        private const val SYSTEM_PROMPT = """你是 Android 终端中的 AI 助手。用户的**大部分输入是想要执行命令**，你需要准确理解并执行。
 
-输出 JSON，支持三种模式：
+## 输出格式（始终返回 JSON）
 
-模式一（闲聊）：{"response": "你的自然语言回答"}
+### 用户想执行命令时 → command 模式
+{"command": "shell 命令", "need_confirm": false}
 
-模式二（单步命令）：{"command": "shell 命令", "need_confirm": false}
+- need_confirm=true：危险操作（删除、格式化、覆盖文件等），先问用户再执行
+- 可直接使用 /system/bin/sh 支持的所有命令：ls, cd, pwd, mkdir, cp, mv, rm, cat, echo, grep, find, ps, top, df, du, pm, am, dumpsys, input, wm, settings 等
 
-模式三（多步任务，需要多个命令才能完成时）：{"steps": [
-  {"cmd": "第一步的命令", "desc": "步骤说明"},
-  {"cmd": "第二步的命令", "desc": "步骤说明"}
-]}
+### 任务需要多个步骤时 → steps 模式
+{"steps": [
+  {"cmd": "cd /sdcard/Download", "desc": "进入目录"},
+  {"cmd": "ls", "desc": "列出文件"}
+], "summary": "任务完成后的总结"}
 
-注意事项：
-- 可以执行任何 Linux/Android shell 命令
-- 当前工作目录可能不同，cd 需要单独作为一步
-- need_confirm: true 表示需要用户确认后再执行（如删除、格式化等危险操作）
-- 如果用户确认命令，输入会以【已确认】开头，此时直接执行命令，不要调用 AI
-- 如果需要重置对话上下文，输出 {"clear_context": true}"""
+### 用户明显在闲聊/提问时 → response 模式
+{"response": "自然语言回答"}
+
+### 重置上下文
+{"clear_context": true}
+
+## 规则
+1. **优先执行命令**：除非用户明显在闲聊（问候、提问知识等），否则默认返回 command 或 steps
+2. 多步任务要合理拆分，cd 必须作为单独一步
+3. 用户确认后输入以【已确认】开头，此时不要返回 JSON，直接执行"""
     }
 
     private val statePrefs: SharedPreferences = context.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE)
     private val httpClient = okhttp3.OkHttpClient.Builder()
-        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
         .build()
 
     data class AgentResult(
@@ -52,10 +62,26 @@ class AiAgent(context: Context) {
     )
 
     suspend fun execute(userInput: String, apiKey: String): AgentResult = withContext(Dispatchers.IO) {
+        Log.d(TAG, "=== execute() ===")
+        Log.d(TAG, "userInput: $userInput")
+
+        try {
+
+        if (userInput.trim().equals("/reset", ignoreCase = true) || userInput.trim().equals("重置", ignoreCase = true)) {
+            Log.d(TAG, "用户请求重置上下文")
+            statePrefs.edit().remove("history").putInt("turn", 0).putString("cwd", "/storage/emulated/0").apply()
+            return@withContext AgentResult(
+                JSONObject().apply { put("response", "✅ 上下文已重置，历史记录已清除") },
+                ""
+            )
+        }
+
         val confirmedPrefix = "【已确认】"
         if (userInput.startsWith(confirmedPrefix)) {
             val cmd = userInput.removePrefix(confirmedPrefix).trim()
+            Log.d(TAG, "已确认命令，直接执行: $cmd")
             val execResult = execCommand(cmd)
+            Log.d(TAG, "执行结果 (exit=${execResult.second}): ${execResult.first.take(200)}")
             return@withContext AgentResult(
                 JSONObject().apply {
                     put("command", cmd)
@@ -70,6 +96,7 @@ class AiAgent(context: Context) {
         val cwd = statePrefs.getString("cwd", "/storage/emulated/0") ?: "/storage/emulated/0"
         val historyJson = statePrefs.getString("history", "[]") ?: "[]"
         val turn = statePrefs.getInt("turn", 0)
+        Log.d(TAG, "cwd=$cwd, turn=$turn, history_size=${JSONArray(historyJson).length()}")
 
         val messages = JSONArray().apply {
             put(JSONObject().apply {
@@ -93,6 +120,9 @@ class AiAgent(context: Context) {
             put("max_tokens", 4096)
         }
 
+        Log.d(TAG, "--- DeepSeek 请求 ---")
+        Log.d(TAG, "payload: ${payload.toString().take(500)}...")
+
         val request = okhttp3.Request.Builder()
             .url(API_URL)
             .header("Authorization", "Bearer $apiKey")
@@ -103,15 +133,22 @@ class AiAgent(context: Context) {
         val response = httpClient.newCall(request).execute()
         val body = response.body?.string() ?: "{}"
         val aiResp = JSONObject(body)
+        Log.d(TAG, "--- DeepSeek 响应 ---")
+        Log.d(TAG, "raw: ${body.take(1000)}")
+
         val choice = aiResp.optJSONArray("choices")?.optJSONObject(0)
         val rawContent = choice?.optJSONObject("message")?.optString("content", "") ?: ""
+        Log.d(TAG, "message.content: $rawContent")
         val content = try {
             JSONObject(rawContent)
         } catch (_: Exception) {
+            Log.w(TAG, "AI 返回非 JSON 内容，包装为 response")
             JSONObject().apply { put("response", rawContent) }
         }
+        Log.d(TAG, "解析后的 JSON: ${content.toString()}")
 
         if (content.optBoolean("clear_context", false)) {
+            Log.d(TAG, "clear_context=true，重置对话")
             statePrefs.edit().remove("history").putInt("turn", 0).apply()
         }
 
@@ -121,17 +158,18 @@ class AiAgent(context: Context) {
 
         if (command.isNotEmpty()) {
             val needConfirm = content.optBoolean("need_confirm", false)
+            Log.d(TAG, "命令模式: command=$command, needConfirm=$needConfirm")
             if (needConfirm) {
+                Log.d(TAG, "需要用户确认，暂停执行")
                 saveToHistory(userInput, "", -1, content.toString())
                 return@withContext AgentResult(content, content.toString())
             }
             val (out, code) = execCommand(command, cwd)
-            val summary = callSummary(command, out, code, apiKey)
+            Log.d(TAG, "命令执行: exit=$code, output=${out.take(300)}")
             saveToHistory(userInput, command, code, content.toString())
             val resultJson = JSONObject().apply {
                 put("command", command)
                 put("output", out)
-                put("summary", summary)
                 put("exit_code", code)
                 put("need_confirm", false)
             }
@@ -140,13 +178,16 @@ class AiAgent(context: Context) {
         }
 
         if (stepsJson != null) {
+            Log.d(TAG, "多步模式: steps=${stepsJson.length()}步")
             val stepResults = JSONArray()
             var currentCwd = cwd
             for (i in 0 until stepsJson.length()) {
                 val step = stepsJson.getJSONObject(i)
                 val cmd = step.optString("cmd", "")
+                Log.d(TAG, "步骤${i+1}: $cmd")
                 if (cmd.isNotEmpty()) {
                     val (out, code) = execCommand(cmd, currentCwd)
+                    Log.d(TAG, "步骤${i+1} 结果: exit=$code, output=${out.take(200)}")
                     val stepResult = JSONObject().apply {
                         put("cmd", cmd)
                         put("output", out)
@@ -160,17 +201,29 @@ class AiAgent(context: Context) {
             saveToHistory(userInput, "", if (stepResults.length() > 0) 0 else -1, content.toString())
             val resultJson = JSONObject().apply {
                 put("steps", stepResults)
-                put("summary", content.optString("summary", "任务执行完成"))
             }
             return@withContext AgentResult(resultJson, content.toString())
         }
 
         if (responseText.isNotEmpty()) {
+            Log.d(TAG, "闲聊模式: response=$responseText")
             saveToHistory(userInput, "", 0, content.toString())
             return@withContext AgentResult(content, content.toString())
         }
 
+        Log.w(TAG, "未识别的 AI 响应，返回默认消息")
         AgentResult(JSONObject().apply { put("response", "已收到") }, content.toString())
+
+        } catch (e: Exception) {
+            Log.e(TAG, "execute 异常", e)
+            AgentResult(
+                JSONObject().apply {
+                    put("error", "执行异常")
+                    put("message", e.message ?: e.toString())
+                },
+                ""
+            )
+        }
     }
 
     private fun execCommand(cmd: String, cwd: String? = null): Pair<String, Int> {
@@ -193,39 +246,6 @@ class AiAgent(context: Context) {
 
     private fun readStream(stream: java.io.InputStream): String {
         return BufferedReader(InputStreamReader(stream)).readText().trim()
-    }
-
-    private fun callSummary(cmd: String, output: String, code: Int, apiKey: String): String {
-        return try {
-            val messages = JSONArray().apply {
-                put(JSONObject().apply {
-                    put("role", "system")
-                    put("content", "用简洁的中文总结命令执行结果。")
-                })
-                put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", "命令：${cmd}\n结果（exit code: ${code}）：\n${output}\n\n请总结")
-                })
-            }
-            val payload = JSONObject().apply {
-                put("model", MODEL)
-                put("messages", messages)
-                put("temperature", 0.1)
-                put("max_tokens", 1024)
-            }
-            val request = okhttp3.Request.Builder()
-                .url(API_URL)
-                .header("Authorization", "Bearer $apiKey")
-                .header("Content-Type", "application/json")
-                .post(payload.toString().toRequestBody("application/json".toMediaType()))
-                .build()
-            val response = httpClient.newCall(request).execute()
-            val respBody = JSONObject(response.body?.string() ?: "{}")
-            respBody.optJSONArray("choices")?.optJSONObject(0)
-                ?.optJSONObject("message")?.optString("content", "") ?: ""
-        } catch (_: Exception) {
-            ""
-        }
     }
 
     private fun saveToHistory(input: String, command: String, exitCode: Int, raw: String) {

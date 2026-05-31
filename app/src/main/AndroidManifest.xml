@@ -36,7 +36,11 @@
 
         <receiver
             android:name=".AdbInputReceiver"
-            android:exported="true" />
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.termuxai.agent.CHAT_INPUT" />
+            </intent-filter>
+        </receiver>
 
     </application>
 
