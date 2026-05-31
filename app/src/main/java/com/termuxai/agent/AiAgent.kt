@@ -104,9 +104,12 @@ class AiAgent(context: Context) {
         val body = response.body?.string() ?: "{}"
         val aiResp = JSONObject(body)
         val choice = aiResp.optJSONArray("choices")?.optJSONObject(0)
-        val content = choice?.optString("message", "")?.let {
-            try { JSONObject(it) } catch (_: Exception) { null }
-        } ?: JSONObject().apply { put("response", choice?.optJSONObject("message")?.optString("content", body) ?: body) }
+        val rawContent = choice?.optJSONObject("message")?.optString("content", "") ?: ""
+        val content = try {
+            JSONObject(rawContent)
+        } catch (_: Exception) {
+            JSONObject().apply { put("response", rawContent) }
+        }
 
         if (content.optBoolean("clear_context", false)) {
             statePrefs.edit().remove("history").putInt("turn", 0).apply()
