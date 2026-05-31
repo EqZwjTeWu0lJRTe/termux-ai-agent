@@ -1,5 +1,6 @@
 package com.termuxai.agent
 
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
@@ -10,7 +11,6 @@ import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
@@ -48,17 +48,45 @@ class MainActivity : AppCompatActivity() {
 
         sendButton.setOnClickListener { sendMessage() }
         settingsButton.setOnClickListener {
-            startActivity(android.content.Intent(this, SettingsActivity::class.java))
+            startActivity(Intent(this, SettingsActivity::class.java))
         }
         inputEditText.setOnClickListener { scrollToBottom() }
 
         initialized = true
         inputEditText.isEnabled = true
         sendButton.isEnabled = true
+
+        AdbInputReceiver.onMessageReceived = { text -> runOnUiThread { doSend(text) } }
+        handleIncomingIntent(intent)
     }
 
-    private fun initTermux() {
-        initialized = true
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIncomingIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        AdbInputReceiver.pendingMessage?.let {
+            AdbInputReceiver.pendingMessage = null
+            doSend(it)
+        }
+    }
+
+    private fun handleIncomingIntent(intent: Intent?) {
+        val text = when {
+            intent?.action == Intent.ACTION_SEND && intent.type == "text/plain" ->
+                intent.getStringExtra(Intent.EXTRA_TEXT)
+            else -> null
+        }
+        if (!text.isNullOrBlank()) {
+            doSend(text)
+        }
+    }
+
+    private fun doSend(text: String) {
+        inputEditText.setText(text)
+        sendMessage()
     }
 
     private fun sendMessage() {
