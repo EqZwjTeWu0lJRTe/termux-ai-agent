@@ -8,7 +8,7 @@ import org.json.JSONObject
 class TestResultReceiver : BroadcastReceiver() {
 
     companion object {
-        const val ACTION_TEST_RESULT = "com.termuxai.agent.ACTION_TEST_RESULT"
+        var pendingCallback: ((Int, String, String) -> Unit)? = null
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -47,11 +47,7 @@ class TestResultReceiver : BroadcastReceiver() {
             }
         }
 
-        val resultIntent = Intent(ACTION_TEST_RESULT).apply {
-            putExtra("stdout", stdout)
-            putExtra("stderr", stderr)
-            putExtra("exit_code", exitCode)
-        }
-        context.sendBroadcast(resultIntent)
+        pendingCallback?.invoke(exitCode, stdout, stderr)
+        pendingCallback = null
     }
 }

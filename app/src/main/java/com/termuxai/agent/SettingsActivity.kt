@@ -1,13 +1,13 @@
 package com.termuxai.agent
 
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
-import android.os.Build
+import android.graphics.Color
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -27,31 +27,15 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var encryptedPrefs: SharedPreferences
 
+    val testTimeoutHandler = Handler(Looper.getMainLooper())
+
     private val testPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
             doTestConnection()
         } else {
-            statusText.text = "❌ 权限被拒绝，无法连接 Termux"
-            statusText.setTextColor(0xFFF44336.toInt())
-        }
-    }
-
-    private val testReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            val stdout = intent.getStringExtra("stdout") ?: ""
-            val stderr = intent.getStringExtra("stderr") ?: ""
-            val exitCode = intent.getIntExtra("exit_code", -1)
-
-            if (exitCode == 0 && stdout.contains("hello")) {
-                statusText.text = "✅ Termux 连接测试成功！"
-                statusText.setTextColor(0xFF4CAF50.toInt())
-            } else {
-                val errMsg = if (stderr.isNotBlank()) stderr else stdout
-                statusText.text = "❌ 测试失败：$errMsg (exit code: $exitCode)"
-                statusText.setTextColor(0xFFF44336.toInt())
-            }
+            showTestResult("❌ 权限被拒绝，无法连接 Termux", false)
         }
     }
 
@@ -82,21 +66,6 @@ class SettingsActivity : AppCompatActivity() {
         saveButton.setOnClickListener { saveSettings() }
 
         testButton.setOnClickListener { testConnection() }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        val filter = IntentFilter(TestResultReceiver.ACTION_TEST_RESULT)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(testReceiver, filter, RECEIVER_EXPORTED)
-        } else {
-            registerReceiver(testReceiver, filter)
-        }
-    }
-
-    override fun onPause() {
-        super.onPause()
-        unregisterReceiver(testReceiver)
     }
 
     private fun loadSettings() {
@@ -141,14 +110,11 @@ class SettingsActivity : AppCompatActivity() {
         statusText.text = "⏳ 正在测试连接..."
         statusText.setTextColor(0xFFFF9800.toInt())
 
-        val termuxClient = TermuxClient(this)
-        termuxClient.testConnection { success, message ->
-            if (!success) {
-                runOnUiThread {
-                    statusText.text = "❌ $message"
-                    statusText.setTextColor(0xFFF44336.toInt())
-                }
-            }
-        }
+        TermuxClient(this).testConnection()
+    }
+
+    fun showTestResult(msg: String, success: Boolean) {
+        statusText.text = msg
+        statusText.setTextColor(if (success) Color.rgb(76, 175, 80) else Color.rgb(244, 67, 54))
     }
 }

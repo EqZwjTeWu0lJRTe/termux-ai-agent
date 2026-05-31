@@ -63,7 +63,27 @@ class TermuxClient(private val context: Context) {
         }
     }
 
-    fun testConnection(callback: (Boolean, String) -> Unit) {
+    fun testConnection() {
+        val activity = context as? SettingsActivity
+        if (activity != null) {
+            TestResultReceiver.pendingCallback = { exitCode, stdout, stderr ->
+                val success = exitCode == 0 && stdout.contains("hello")
+                val msg = if (success) "✅ Termux 连接测试成功！"
+                else "❌ 测试失败：${if (stderr.isNotBlank()) stderr else stdout} (exit code: $exitCode)"
+                activity.runOnUiThread { activity.showTestResult(msg, success) }
+            }
+            activity.runOnUiThread {
+                activity.showTestResult("⏳ 正在测试连接...", false)
+                // 超时保护：10秒无响应则显示超时
+                activity.testTimeoutHandler.postDelayed({
+                    if (TestResultReceiver.pendingCallback != null) {
+                        TestResultReceiver.pendingCallback = null
+                        activity.showTestResult("❌ 连接超时：Termux 未响应", false)
+                    }
+                }, 10000)
+            }
+        }
+
         val pendingIntent = PendingIntent.getBroadcast(
             context,
             (System.currentTimeMillis() + 9999).toInt(),
@@ -83,9 +103,11 @@ class TermuxClient(private val context: Context) {
 
         try {
             context.startService(intent)
-            callback(true, "命令已发送，等待执行结果...")
         } catch (e: Exception) {
-            callback(false, "无法启动 Termux 服务：${e.message}\n请确保 Termux 已安装并配置了 allow-external-apps")
+            TestResultReceiver.pendingCallback = null
+            activity?.runOnUiThread {
+                activity.showTestResult("❌ 无法启动 Termux 服务：${e.message}", false)
+            }
         }
     }
 }
