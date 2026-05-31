@@ -54,7 +54,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="8dp"
                     style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-                    android:hint="Python 脚本路径 (Termux 内)">
+                    android:hint="Python 脚本路径">
 
                     <EditText
                         android:id="@+id/scriptPathEditText"
@@ -62,7 +62,7 @@
                         android:layout_height="wrap_content"
                         android:textSize="12sp"
                         android:inputType="text"
-                        android:text="~/agent.py" />
+                        android:text="/data/data/com.termux/files/home/agent.py" />
 
                 </com.google.android.material.textfield.TextInputLayout>
 
