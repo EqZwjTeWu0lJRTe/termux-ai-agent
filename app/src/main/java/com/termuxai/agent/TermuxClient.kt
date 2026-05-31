@@ -5,9 +5,11 @@ import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 
 class TermuxClient(private val context: Context) {
 
@@ -121,21 +123,25 @@ class TermuxClient(private val context: Context) {
             doTestIntent(activity)
         } else {
             activity?.runOnUiThread {
-                activity.showTestResult("ℹ️ 需要先打开 Termux", false)
+                activity.showTestResult("ℹ️ 需要允许关联启动 Termux", false)
                 AlertDialog.Builder(activity)
-                    .setTitle("打开 Termux")
-                    .setMessage("首次使用需要先打开 Termux 一次，之后 App 可以自动唤醒。\n\n点击「确定」后将跳转到 Termux，请返回本应用继续测试。")
-                    .setPositiveButton("确定") { _, _ ->
-                        activity.showTestResult("⏳ 等待 Termux 启动...", false)
+                    .setTitle("需要系统权限")
+                    .setMessage("ColorOS 拦截了 App 自动打开 Termux。\n\n请在系统设置中允许「Termux AI Agent」关联启动其他应用：\n\n设置 → 应用 → Termux AI Agent → 关联启动 → 打开「允许关联启动」\n\n完成后返回此页面，将自动重试。")
+                    .setPositiveButton("去设置") { _, _ ->
+                        activity.showTestResult("⏳ 请开启关联启动后返回", false)
                         activity.pendingTest = true
-                        launchTermux()
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.parse("package:${context.packageName}")
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        try { context.startActivity(intent) } catch (_: Exception) {}
                         activity.testTimeoutHandler.postDelayed({
                             if (TestResultReceiver.pendingCallback != null) {
                                 TestResultReceiver.pendingCallback = null
                                 activity.pendingTest = false
                                 activity.showTestResult("❌ 连接超时：Termux 未响应", false)
                             }
-                        }, 25000)
+                        }, 60000)
                     }
                     .setNegativeButton("取消", null)
                     .show()
