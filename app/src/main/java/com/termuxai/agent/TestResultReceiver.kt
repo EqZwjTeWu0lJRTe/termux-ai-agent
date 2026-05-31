@@ -20,7 +20,8 @@ class TestResultReceiver : BroadcastReceiver() {
         for (key in listOf("com.termux.EXTRA_PLUGIN_RESULT_BUNDLE", "result", "RESULT")) {
             val bundle = intent.getBundleExtra(key)
             if (bundle != null) {
-                stdout = bundle.getString("stdout") ?: ""
+                stdout = (bundle.getString("stdout") ?: "")
+                    .substringBefore("[Process completed").trim()
                 stderr = bundle.getString("stderr") ?: ""
                 val ec = bundle.get("exitCode")
                 exitCode = when (ec) {
