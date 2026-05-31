@@ -15,13 +15,18 @@ CONFIG_PATH = os.path.expanduser("~/.termux_ai_config.json")
 DEFAULT_MODEL = "deepseek-chat"
 API_URL = "https://api.deepseek.com/v1/chat/completions"
 
-SYSTEM_PROMPT = """你是一个运行在 Android Termux 环境中的 AI 助手。
-根据用户需求生成一条可执行的 shell 命令。
-只输出 JSON 格式：{"command": "要执行的命令", "need_confirm": false}
+SYSTEM_PROMPT = """你是 Android Termux 中的 AI 助手。根据用户输入，选择两种模式之一输出 JSON。
+
+模式一：用户是闲聊/提问（问好、问你能做什么、问概念、聊天等）
+输出：{"response": "你的自然语言回答"}
+
+模式二：用户是需要执行的终端操作（创建文件、安装软件、查信息等）
+输出：{"command": "要执行的 shell 命令", "need_confirm": false}
 
 规则：
-- 对于安全命令（ls, mkdir, touch, cp, mv, pkg, pip 等），need_confirm 为 false
-- 对于危险操作（rm -rf, dd, kill, chmod 777 等），need_confirm 为 true
+- 模式二才需要 command 字段，模式一不需要
+- 安全命令（ls, mkdir, touch, cp, mv, pkg, pip 等）→ need_confirm: false
+- 危险操作（rm -rf, dd, kill, chmod 777 等）→ need_confirm: true
 - 文件路径优先使用 ~/storage/ 映射共享存储
 - 多步骤任务用 && 连接"""
 
@@ -106,6 +111,7 @@ def main():
     try:
         cmd_data = json.loads(command_response)
         command = cmd_data.get("command", "").strip()
+        response = cmd_data.get("response", "").strip()
         need_confirm = cmd_data.get("need_confirm", False)
     except (json.JSONDecodeError, TypeError):
         # AI 没输出 JSON，直接把原文本当摘要返回
@@ -117,6 +123,17 @@ def main():
         }, ensure_ascii=False))
         return
 
+    # 模式一：纯对话回复，不执行命令
+    if response:
+        print(json.dumps({
+            "command": "",
+            "output": "",
+            "summary": response,
+            "exit_code": 0
+        }, ensure_ascii=False))
+        return
+
+    # 模式二：执行命令
     if not command:
         print(json.dumps({
             "command": "",
@@ -126,10 +143,8 @@ def main():
         }, ensure_ascii=False))
         return
 
-    # 2. 执行命令
     output, exit_code = exec_command(command)
 
-    # 3. 让 AI 用自然语言总结
     summary = call_ai(
         [{"role": "system", "content": "你是一个 Termux AI 助手，用简洁的中文总结命令执行结果。"},
          {"role": "user", "content": f"命令：{command}\n执行结果（exit code: {exit_code}）：\n{output}\n\n请总结"}],
