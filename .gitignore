@@ -11,3 +11,4 @@ local.properties
 /app/build
 /local.properties
 *.apk
+!termux-ai-agent.apk

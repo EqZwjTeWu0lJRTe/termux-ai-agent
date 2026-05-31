@@ -23,22 +23,21 @@ https://f-droid.org/packages/com.termux/
 
 ### 2. 配置 Termux
 
-打开 Termux，依次执行：
+**打开「显示在其他应用上层」权限（Android 10+ 必需）：**
+系统设置 → 应用 → Termux → 高级 → 打开「显示在其他应用上层」
+
+**安装依赖：**
 
 ```bash
-# 更新包管理器
 pkg update && pkg upgrade -y
-
-# 安装 Python
 pkg install python -y
-
-# 安装 requests 库
 pip install requests
+```
 
-# 启用外部应用访问（关键！否则 App 无法与 Termux 通信）
+**启用外部应用访问（关键！否则 App 无法与 Termux 通信）：**
+
+```bash
 echo "allow-external-apps = true" >> ~/.termux/termux.properties
-
-# 重启 Termux（关闭 App 重新打开）
 exit
 ```
 
