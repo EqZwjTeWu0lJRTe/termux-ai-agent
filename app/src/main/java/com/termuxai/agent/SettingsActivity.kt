@@ -102,7 +102,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun loadSettings() {
         val apiKey = encryptedPrefs.getString("api_key", "") ?: ""
         val scriptPath = encryptedPrefs.getString("script_path",
-            "/data/data/com.termux/files/home/agent.py") ?: "/data/data/com.termux/files/home/agent.py"
+            "~/agent.py") ?: "~/agent.py"
 
         apiKeyEditText.setText(apiKey)
         scriptPathEditText.setText(scriptPath)

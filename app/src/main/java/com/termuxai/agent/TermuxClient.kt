@@ -18,8 +18,8 @@ class TermuxClient(private val context: Context) {
     private val scriptPath: String
         get() = prefs.getString(
             "script_path",
-            "/data/data/com.termux/files/home/agent.py"
-        ) ?: "/data/data/com.termux/files/home/agent.py"
+            "~/agent.py"
+        ) ?: "~/agent.py"
 
     private val apiKey: String
         get() = prefs.getString("api_key", "") ?: ""

@@ -82,6 +82,8 @@ class MainActivity : AppCompatActivity() {
 
         termuxClient = TermuxClient(this)
 
+        AgentUpdater(this).pushIfNeeded()
+
         adapter = ChatAdapter(messages)
         recyclerView.layoutManager = LinearLayoutManager(this)
         recyclerView.adapter = adapter

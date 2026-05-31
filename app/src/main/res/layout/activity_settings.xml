@@ -62,7 +62,7 @@
                         android:layout_height="wrap_content"
                         android:textSize="12sp"
                         android:inputType="text"
-                        android:text="/data/data/com.termux/files/home/agent.py" />
+                        android:text="~/agent.py" />
 
                 </com.google.android.material.textfield.TextInputLayout>
 
@@ -150,14 +150,15 @@
 pkg install python
 pip install requests
 
-4. 在 Termux 主目录创建 agent.py
-
-5. 执行：
+4. 执行：
 echo "allow-external-apps = true" >> ~/.termux/termux.properties
 
-6. 重启 Termux
+5. 重启 Termux
 
-7. 填入 API Key 并测试连接' />
+6. 填入 API Key 并测试连接
+
+⚠ agent.py 由 App 自动推送更新，
+  无需手动放置脚本文件' />
 
             </LinearLayout>
 
