@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Termux AI Agent</string>
+    <string name="input_hint">输入你的指令...</string>
+    <string name="send_button">发送</string>
+    <string name="settings_title">设置</string>
+</resources>
