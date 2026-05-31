@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.os.Build
 import android.os.Bundle
 import android.widget.Button
@@ -21,7 +22,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var testButton: Button
     private lateinit var statusText: TextView
 
-    private lateinit var encryptedPrefs: EncryptedSharedPreferences
+    private lateinit var encryptedPrefs: SharedPreferences
 
     private val testReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {

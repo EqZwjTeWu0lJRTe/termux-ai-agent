@@ -141,7 +141,20 @@
                     android:textSize="13sp"
                     android:textColor="#616161"
                     android:lineSpacingExtra="4dp"
-                    android:text="1. 确保 Termux 已安装\n\n2. 在 Termux 中执行：\npkg install python\npip install requests\n\n3. 在 Termux 主目录创建 agent.py\n\n4. 执行：\necho \"allow-external-apps = true\" >> ~/.termux/termux.properties\n\n5. 重启 Termux\n\n6. 填入 API Key 并测试连接" />
+                    android:text='1. 确保 Termux 已安装
+
+2. 在 Termux 中执行：
+pkg install python
+pip install requests
+
+3. 在 Termux 主目录创建 agent.py
+
+4. 执行：
+echo "allow-external-apps = true" >> ~/.termux/termux.properties
+
+5. 重启 Termux
+
+6. 填入 API Key 并测试连接' />
 
             </LinearLayout>
 
