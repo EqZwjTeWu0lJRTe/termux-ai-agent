@@ -142,20 +142,22 @@ class MainActivity : AppCompatActivity() {
         val sb = StringBuilder()
 
         if (response.isNotBlank()) {
-            sb.append(response).append("\n\n")
+            sb.append(response).append('\n')
         }
 
         if (command.isNotBlank()) {
-            sb.append("$ ").appendLine(command)
-            if (output.isNotBlank()) {
-                val lines = output.split("\n")
-                for (line in lines) {
+            sb.append("\n╭─ $ ").appendLine(command)
+            if (output.isNotBlank() && !output.contains("（命令执行完毕")) {
+                for (line in output.split("\n")) {
                     val clean = line.replace("\t", "  ")
                     if (clean.isNotBlank()) {
-                        sb.append("  ").appendLine(clean)
+                        sb.append("│ ").appendLine(clean)
                     }
                 }
+            } else {
+                sb.append("│ ").appendLine("(无输出)")
             }
+            sb.append("╰─ 退出码: ").append(json.optInt("exit_code", -1))
         }
 
         if (steps != null) {
@@ -164,21 +166,22 @@ class MainActivity : AppCompatActivity() {
                 val cmd = step.optString("cmd", "")
                 val out = step.optString("output", "")
                 if (cmd.isNotBlank()) {
-                    sb.append("步骤 ${i+1}：")
-                    sb.append("$ ").appendLine(cmd)
+                    sb.append("\n步骤 ${i+1}：\n")
+                    sb.append("╭─ $ ").appendLine(cmd)
                     if (out.isNotBlank()) {
                         for (line in out.split("\n")) {
                             val clean = line.replace("\t", "  ")
                             if (clean.isNotBlank()) {
-                                sb.append("  ").appendLine(clean)
+                                sb.append("│ ").appendLine(clean)
                             }
                         }
                     }
+                    sb.append("╰─ 退出码: ").append(step.optInt("exit_code", -1))
                 }
             }
         }
 
-        return sb.toString().trimEnd()
+        return sb.toString()
     }
 
     private fun showConfirmDialog(command: String) {

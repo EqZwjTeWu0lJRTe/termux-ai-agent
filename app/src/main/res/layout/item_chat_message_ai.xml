@@ -24,12 +24,13 @@
             android:id="@+id/messageText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:maxWidth="360dp"
+            android:maxWidth="380dp"
             android:padding="12dp"
-            android:textSize="15sp"
+            android:textSize="14sp"
             android:textColor="#212121"
             android:background="@drawable/bg_chat_ai"
-            android:lineSpacingExtra="2dp" />
+            android:lineSpacingExtra="4dp"
+            android:textIsSelectable="true" />
 
     </LinearLayout>
 
