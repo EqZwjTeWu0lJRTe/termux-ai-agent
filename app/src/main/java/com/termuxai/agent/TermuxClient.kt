@@ -1,5 +1,6 @@
 package com.termuxai.agent
 
+import android.app.AlertDialog
 import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
@@ -48,26 +49,19 @@ class TermuxClient(private val context: Context) {
             }
             context.startService(intent)
             return true
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+            return false
+        }
+    }
 
+    private fun launchTermux() {
         try {
             val intent = Intent(Intent.ACTION_MAIN).apply {
                 component = ComponentName("com.termux", "com.termux.app.TermuxActivity")
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
             context.startActivity(intent)
-            return true
         } catch (_: Exception) {}
-
-        try {
-            val intent = context.packageManager.getLaunchIntentForPackage("com.termux")
-            if (intent != null) {
-                context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                return true
-            }
-        } catch (_: Exception) {}
-
-        return false
     }
 
     fun execute(userInput: String) {
@@ -123,22 +117,33 @@ class TermuxClient(private val context: Context) {
             }
         }
 
-        val woke = wakeTermux()
-        if (!woke) {
+        if (wakeTermux()) {
+            doTestIntent(activity)
+        } else {
             activity?.runOnUiThread {
-                activity.showTestResult("⚠️ 无法自动唤醒，请手动打开一次 Termux 再返回", false)
-                activity.pendingTest = true
-                activity.testTimeoutHandler.postDelayed({
-                    if (TestResultReceiver.pendingCallback != null) {
-                        TestResultReceiver.pendingCallback = null
-                        activity.pendingTest = false
-                        activity.showTestResult("❌ 连接超时：Termux 未响应", false)
+                activity.showTestResult("ℹ️ 需要先打开 Termux", false)
+                AlertDialog.Builder(activity)
+                    .setTitle("打开 Termux")
+                    .setMessage("首次使用需要先打开 Termux 一次，之后 App 可以自动唤醒。\n\n点击「确定」后将跳转到 Termux，请返回本应用继续测试。")
+                    .setPositiveButton("确定") { _, _ ->
+                        activity.showTestResult("⏳ 等待 Termux 启动...", false)
+                        activity.pendingTest = true
+                        launchTermux()
+                        activity.testTimeoutHandler.postDelayed({
+                            if (TestResultReceiver.pendingCallback != null) {
+                                TestResultReceiver.pendingCallback = null
+                                activity.pendingTest = false
+                                activity.showTestResult("❌ 连接超时：Termux 未响应", false)
+                            }
+                        }, 25000)
                     }
-                }, 25000)
+                    .setNegativeButton("取消", null)
+                    .show()
             }
-            return
         }
+    }
 
+    private fun doTestIntent(activity: SettingsActivity?) {
         handler.postDelayed({
             val pendingIntent = PendingIntent.getBroadcast(
                 context,
@@ -156,16 +161,13 @@ class TermuxClient(private val context: Context) {
 
             try {
                 context.startService(intent)
-                activity?.runOnUiThread {
-                    activity.showTestResult("✅ 命令已发送，等待 Termux 返回...", false)
-                }
             } catch (e: Exception) {
                 TestResultReceiver.pendingCallback = null
                 activity?.runOnUiThread {
                     activity.showTestResult("❌ 无法启动 Termux 服务：${e.message}", false)
                 }
             }
-        }, 3000)
+        }, 2000)
 
         activity?.runOnUiThread {
             activity.testTimeoutHandler.postDelayed({
@@ -174,7 +176,7 @@ class TermuxClient(private val context: Context) {
                     activity.pendingTest = false
                     activity.showTestResult("❌ 连接超时：Termux 未响应", false)
                 }
-            }, 13000)
+            }, 12000)
         }
     }
 }
