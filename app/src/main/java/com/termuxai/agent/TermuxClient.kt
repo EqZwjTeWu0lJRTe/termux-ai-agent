@@ -51,19 +51,30 @@ class TermuxClient(private val context: Context) {
             }
             context.startService(intent)
             return true
-        } catch (_: Exception) {
-            return false
-        }
-    }
-
-    private fun launchTermux() {
-        try {
-            val intent = Intent(Intent.ACTION_MAIN).apply {
-                component = ComponentName("com.termux", "com.termux.app.TermuxActivity")
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-            context.startActivity(intent)
         } catch (_: Exception) {}
+
+        try {
+            Runtime.getRuntime().exec(arrayOf(
+                "am", "startservice",
+                "-n", "com.termux/.app.RunCommandService",
+                "-a", "com.termux.RUN_COMMAND",
+                "--es", "com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash",
+                "--esa", "com.termux.RUN_COMMAND_ARGUMENTS", "-c,echo wake",
+                "--ez", "com.termux.RUN_COMMAND_BACKGROUND", "true"
+            ))
+            return true
+        } catch (_: Exception) {}
+
+        try {
+            Runtime.getRuntime().exec(arrayOf(
+                "am", "start",
+                "-n", "com.termux/.app.TermuxActivity",
+                "-a", "android.intent.action.MAIN"
+            ))
+            return true
+        } catch (_: Exception) {}
+
+        return false
     }
 
     fun execute(userInput: String) {
