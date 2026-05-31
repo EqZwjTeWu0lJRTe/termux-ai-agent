@@ -1,8 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/python3
 """
-Termux AI Agent - 核心脚本
-由 App 通过 Intent 调用：python agent.py "<用户输入>"
-输出 JSON 供 App 解析展示
+Termux AI Agent - v1.1
+核心能力：状态记忆 + 多步任务规划
 """
 
 import json
@@ -10,25 +9,32 @@ import os
 import subprocess
 import sys
 import requests
+from datetime import datetime
 
 CONFIG_PATH = os.path.expanduser("~/.termux_ai_config.json")
+STATE_PATH = os.path.expanduser("~/.termux_agent_state.json")
 DEFAULT_MODEL = "deepseek-chat"
 API_URL = "https://api.deepseek.com/v1/chat/completions"
+MAX_HISTORY = 10
 
-SYSTEM_PROMPT = """你是 Android Termux 中的 AI 助手。根据用户输入，选择两种模式之一输出 JSON。
+SYSTEM_PROMPT = """你是 Android Termux 中的 AI 助手，具备状态记忆和多步规划能力。
 
-模式一：用户是闲聊/提问（问好、问你能做什么、问概念、聊天等）
-输出：{"response": "你的自然语言回答"}
+输出 JSON，支持三种模式：
 
-模式二：用户是需要执行的终端操作（创建文件、安装软件、查信息等）
-输出：{"command": "要执行的 shell 命令", "need_confirm": false}
+模式一（闲聊）：{"response": "你的自然语言回答"}
+
+模式二（单步命令）：{"command": "shell 命令", "need_confirm": false}
+
+模式三（多步任务，需要多个命令才能完成时）：{"steps": [
+  {"cmd": "第一步的命令", "desc": "步骤说明"},
+  {"cmd": "第二步的命令", "desc": "步骤说明"}
+], "summary": "任务总览"}
 
 规则：
-- 模式二才需要 command 字段，模式一不需要
-- 安全命令（ls, mkdir, touch, cp, mv, pkg, pip 等）→ need_confirm: false
-- 危险操作（rm -rf, dd, kill, chmod 777 等）→ need_confirm: true
+- 安全命令（ls, mkdir, touch, cp, mv 等）→ need_confirm: false
+- 危险操作（rm -rf, dd, kill 等）→ need_confirm: true
 - 文件路径优先使用 ~/storage/ 映射共享存储
-- 多步骤任务用 && 连接"""
+- 多步任务必须按依赖顺序排列"""
 
 
 def get_api_key():
@@ -41,7 +47,65 @@ def get_api_key():
     return ""
 
 
-def call_ai(messages, api_key):
+def load_state():
+    default = {"cwd": os.path.expanduser("~"), "history": [], "turn": 0}
+    if not os.path.exists(STATE_PATH):
+        return default
+    try:
+        with open(STATE_PATH) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return default
+
+
+def save_state(state):
+    try:
+        with open(STATE_PATH, "w") as f:
+            json.dump(state, f, indent=2)
+    except OSError:
+        pass
+
+
+def append_history(state, cmd, output, exit_code):
+    history = state.setdefault("history", [])
+    history.append({
+        "cmd": cmd,
+        "output": output[:200],
+        "exit_code": exit_code,
+        "ts": datetime.now().isoformat()
+    })
+    if len(history) > MAX_HISTORY:
+        state["history"] = history[-MAX_HISTORY:]
+    state["turn"] = state.get("turn", 0) + 1
+
+
+def update_cwd(state, command):
+    cwd = state.get("cwd", os.path.expanduser("~"))
+    if command.strip().startswith("cd "):
+        parts = command.strip().split(None, 1)
+        if len(parts) == 2:
+            new_dir = os.path.expanduser(parts[1])
+            if os.path.isabs(new_dir):
+                cwd = new_dir
+            else:
+                cwd = os.path.normpath(os.path.join(cwd, new_dir))
+            state["cwd"] = cwd
+
+
+def build_context(state):
+    lines = []
+    lines.append(f"当前目录：{state.get('cwd', '~')}")
+    history = state.get("history", [])
+    if history:
+        lines.append("最近操作：")
+        for h in history[-3:]:
+            status = "✓" if h.get("exit_code") == 0 else "✗"
+            lines.append(f"  {status} {h['cmd']} ({h.get('output', '')[:60]})")
+    lines.append(f"对话轮次：第 {state.get('turn', 0) + 1} 次")
+    return "\n".join(lines)
+
+
+def call_ai(messages, api_key, max_tokens=2048):
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
@@ -50,7 +114,7 @@ def call_ai(messages, api_key):
         "model": DEFAULT_MODEL,
         "messages": messages,
         "temperature": 0.1,
-        "max_tokens": 1024
+        "max_tokens": max_tokens
     }
     try:
         resp = requests.post(API_URL, headers=headers, json=payload, timeout=30)
@@ -59,18 +123,20 @@ def call_ai(messages, api_key):
     except requests.exceptions.ConnectionError:
         return json.dumps({"error": "网络错误", "message": "无法连接到 API 服务器"})
     except requests.exceptions.Timeout:
-        return json.dumps({"error": "超时", "message": "API 请求超时，请检查网络"})
+        return json.dumps({"error": "超时", "message": "API 请求超时"})
     except requests.exceptions.HTTPError as e:
         if resp.status_code == 401:
-            return json.dumps({"error": "API Key 无效", "message": "请在 App 设置中检查 API Key"})
+            return json.dumps({"error": "API Key 无效", "message": "请在 App 设置中检查"})
         return json.dumps({"error": f"HTTP {resp.status_code}", "message": str(e)})
     except Exception as e:
         return json.dumps({"error": "API 调用失败", "message": str(e)})
 
 
-def exec_command(command):
+def exec_command(command, cwd):
     try:
-        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(
+            command, shell=True, capture_output=True, text=True, timeout=60, cwd=cwd
+        )
         output = ""
         if result.stdout:
             output += result.stdout
@@ -94,71 +160,121 @@ def main():
     api_key = sys.argv[2] if len(sys.argv) > 2 else get_api_key()
 
     if not api_key:
-        result = {
+        print(json.dumps({
             "error": "未配置 API Key",
-            "message": "请在 App 设置中配置 DeepSeek API Key\n或在 Termux 中执行：\necho '{\"api_key\":\"你的key\"}' > ~/.termux_ai_config.json"
-        }
-        print(json.dumps(result, ensure_ascii=False))
+            "message": "请在 App 设置中配置 DeepSeek API Key"
+        }, ensure_ascii=False))
         return
 
-    # 1. AI 生成命令
-    command_response = call_ai(
-        [{"role": "system", "content": SYSTEM_PROMPT},
+    state = load_state()
+    context = build_context(state)
+
+    full_prompt = f"{SYSTEM_PROMPT}\n\n上下文：\n{context}"
+
+    raw = call_ai(
+        [{"role": "system", "content": full_prompt},
          {"role": "user", "content": user_input}],
         api_key
     )
 
     try:
-        cmd_data = json.loads(command_response)
-        command = cmd_data.get("command", "").strip()
-        response = cmd_data.get("response", "").strip()
-        need_confirm = cmd_data.get("need_confirm", False)
+        data = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
-        # AI 没输出 JSON，直接把原文本当摘要返回
         print(json.dumps({
-            "command": "",
-            "output": "",
-            "summary": command_response,
-            "exit_code": 0
+            "command": "", "output": "", "summary": raw, "exit_code": 0
         }, ensure_ascii=False))
         return
 
-    # 模式一：纯对话回复，不执行命令
+    response = data.get("response", "").strip()
+    command = data.get("command", "").strip()
+    steps = data.get("steps", [])
+    need_confirm = data.get("need_confirm", False)
+
+    # 模式一：闲聊
     if response:
         print(json.dumps({
-            "command": "",
-            "output": "",
-            "summary": response,
-            "exit_code": 0
+            "command": "", "output": "", "summary": response, "exit_code": 0
         }, ensure_ascii=False))
         return
 
-    # 模式二：执行命令
+    # 模式三：多步任务
+    if steps:
+        cwd = state.get("cwd", os.path.expanduser("~"))
+        results = []
+        all_ok = True
+        n = len(steps)
+        for i, step in enumerate(steps):
+            cmd = step.get("cmd", "").strip()
+            desc = step.get("desc", f"步骤 {i+1}")
+            if not cmd:
+                continue
+
+            out, code = exec_command(cmd, cwd)
+            update_cwd(state, cmd)
+            cwd = state.get("cwd", cwd)
+            append_history(state, cmd, out, code)
+            results.append({
+                "cmd": cmd, "desc": desc, "output": out, "exit_code": code
+            })
+
+            if code != 0:
+                all_ok = False
+                decision = call_ai(
+                    [{"role": "system", "content": f"步骤「{desc}」执行失败（exit code: {code}）。错误：{out[:300]}。请用 JSON 决定：继续执行后续步骤还是放弃？输出 {{\"action\": \"continue\"}} 或 {{\"action\": \"abort\", \"reason\": \"原因\"}}"}],
+                    api_key, max_tokens=256
+                )
+                try:
+                    dec = json.loads(decision)
+                    if dec.get("action") == "abort":
+                        results.append({
+                            "cmd": "", "desc": f"⏹ 已中止：{dec.get('reason', '')}",
+                            "output": "", "exit_code": -1
+                        })
+                        break
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+        summary = call_ai(
+            [{"role": "system", "content": "用简洁的中文总结刚刚执行的任务结果。"},
+             {"role": "user", "content": json.dumps(results, ensure_ascii=False)}],
+            api_key, max_tokens=1024
+        )
+
+        save_state(state)
+        print(json.dumps({
+            "command": f"[{n} 步任务]",
+            "output": "\n---\n".join(
+                f"[{r['desc']}]\n{r.get('output', '')}" for r in results
+            ),
+            "summary": summary,
+            "exit_code": 0 if all_ok else 1,
+            "steps": results
+        }, ensure_ascii=False))
+        return
+
+    # 模式二：单步命令
     if not command:
         print(json.dumps({
-            "command": "",
-            "output": "",
-            "summary": "AI 未能生成有效命令",
-            "exit_code": 0
+            "command": "", "output": "", "summary": "AI 未能生成有效命令", "exit_code": 0
         }, ensure_ascii=False))
         return
 
-    output, exit_code = exec_command(command)
+    cwd = state.get("cwd", os.path.expanduser("~"))
+    out, code = exec_command(command, cwd)
+    update_cwd(state, command)
+    append_history(state, command, out, code)
+    save_state(state)
 
     summary = call_ai(
-        [{"role": "system", "content": "你是一个 Termux AI 助手，用简洁的中文总结命令执行结果。"},
-         {"role": "user", "content": f"命令：{command}\n执行结果（exit code: {exit_code}）：\n{output}\n\n请总结"}],
+        [{"role": "system", "content": "用简洁的中文总结命令执行结果。"},
+         {"role": "user", "content": f"命令：{command}\n结果（exit code: {code}）：\n{out}\n\n请总结"}],
         api_key
     )
 
-    result = {
-        "command": command,
-        "output": output,
-        "summary": summary,
-        "exit_code": exit_code,
-        "need_confirm": need_confirm
-    }
-    print(json.dumps(result, ensure_ascii=False))
+    print(json.dumps({
+        "command": command, "output": out, "summary": summary,
+        "exit_code": code, "need_confirm": need_confirm
+    }, ensure_ascii=False))
 
 
 if __name__ == "__main__":
