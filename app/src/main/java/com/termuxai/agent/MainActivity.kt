@@ -124,7 +124,6 @@ class MainActivity : AppCompatActivity() {
 
         inputEditText.text.clear()
         adapter.addMessage(ChatMessage(text, isUser = true))
-        adapter.addMessage(ChatMessage("AI 正在思考...", isUser = false, isLoading = true))
         scrollToBottom()
 
         if (ContextCompat.checkSelfPermission(this, TermuxClient.PERMISSION)
@@ -139,7 +138,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun doExecute(text: String) {
-        termuxClient.execute(text)
+        val msgText = if (pendingConfirmCommand != null) text else text
+        adapter.addMessage(ChatMessage("AI 正在思考...", isUser = false, isLoading = true))
+        scrollToBottom()
+
+        termuxClient.execute(msgText) {
+            adapter.removeLoadingIndicator()
+            if (!termuxClient.isTermuxRunning()) {
+                adapter.addMessage(ChatMessage(
+                    "⚠️ Termux 未运行，请先打开 Termux。\n\n打开后消息会自动发送，无需重试。",
+                    isUser = false
+                ))
+                scrollToBottom()
+            } else {
+                adapter.addMessage(ChatMessage(
+                    "⚠️ 无法连接 Termux 服务，请确保：\n1. Termux 已打开\n2. 已执行 `echo \"allow-external-apps = true\" >> ~/.termux/termux.properties`\n3. Termux 已重启",
+                    isUser = false
+                ))
+                scrollToBottom()
+            }
+        }
     }
 
     private fun parseResponse(raw: String): String {
