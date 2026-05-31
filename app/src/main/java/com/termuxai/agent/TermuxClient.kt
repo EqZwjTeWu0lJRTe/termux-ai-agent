@@ -5,11 +5,9 @@ import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.provider.Settings
 
 class TermuxClient(private val context: Context) {
 
@@ -41,78 +39,6 @@ class TermuxClient(private val context: Context) {
         }
     }
 
-    private fun wakeTermux(): Boolean {
-        try {
-            context.contentResolver.insert(
-                Uri.parse("content://com.termux.files/data/data/com.termux/files/home"),
-                null
-            )
-            Thread.sleep(2000)
-            try {
-                val intent = Intent("com.termux.RUN_COMMAND").apply {
-                    setClassName("com.termux", "com.termux.app.RunCommandService")
-                    putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash")
-                    putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", ": # wake"))
-                    putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
-                }
-                context.startService(intent)
-            } catch (_: Exception) {}
-            return true
-        } catch (_: Exception) {}
-
-        try {
-            context.contentResolver.query(
-                Uri.parse("content://com.termux.files/"),
-                null, null, null, null
-            )?.close()
-            Thread.sleep(2000)
-            try {
-                val intent = Intent("com.termux.RUN_COMMAND").apply {
-                    setClassName("com.termux", "com.termux.app.RunCommandService")
-                    putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash")
-                    putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", ": # wake"))
-                    putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
-                }
-                context.startService(intent)
-            } catch (_: Exception) {}
-            return true
-        } catch (_: Exception) {}
-
-        try {
-            val intent = Intent("com.termux.RUN_COMMAND").apply {
-                setClassName("com.termux", "com.termux.app.RunCommandService")
-                putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash")
-                putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", ": # wake"))
-                putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
-            }
-            context.startService(intent)
-            return true
-        } catch (_: Exception) {}
-
-        try {
-            Runtime.getRuntime().exec(arrayOf(
-                "am", "startservice",
-                "-n", "com.termux/.app.RunCommandService",
-                "-a", "com.termux.RUN_COMMAND",
-                "--es", "com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash",
-                "--esa", "com.termux.RUN_COMMAND_ARGUMENTS", "-c,echo wake",
-                "--ez", "com.termux.RUN_COMMAND_BACKGROUND", "true"
-            ))
-            return true
-        } catch (_: Exception) {}
-
-        try {
-            Runtime.getRuntime().exec(arrayOf(
-                "am", "start",
-                "-n", "com.termux/.app.TermuxActivity",
-                "-a", "android.intent.action.MAIN"
-            ))
-            return true
-        } catch (_: Exception) {}
-
-        return false
-    }
-
     fun execute(userInput: String) {
         val pendingIntent = PendingIntent.getBroadcast(
             context,
@@ -124,29 +50,21 @@ class TermuxClient(private val context: Context) {
         val intent = Intent("com.termux.RUN_COMMAND").apply {
             setClassName("com.termux", "com.termux.app.RunCommandService")
             putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/python")
-            putExtra(
-                "com.termux.RUN_COMMAND_ARGUMENTS",
-                arrayOf(scriptPath, userInput, apiKey)
-            )
+            putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf(scriptPath, userInput, apiKey))
             putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", pendingIntent)
         }
 
-        try {
-            context.startService(intent)
-        } catch (e: Exception) {
-            wakeTermux()
+        if (!tryRunCommand(intent)) {
             handler.postDelayed({
-                try {
-                    context.startService(intent)
-                } catch (_: Exception) {
+                if (!tryRunCommand(intent)) {
                     val errorIntent = Intent(MyResultReceiver.ACTION_RESULT).apply {
                         putExtra("stdout", "")
-                        putExtra("stderr", "无法启动 Termux 服务：${e.message}\n\n请确保：\n1. Termux 已安装\n2. 已执行 echo \"allow-external-apps = true\" >> ~/.termux/termux.properties\n3. Termux 已重启")
+                        putExtra("stderr", "无法启动 Termux 服务。\n\n请在设置页点击「测试连接」，通过系统分享将命令发送到 Termux 以完成首次授权。之后即可正常使用。")
                         putExtra("exit_code", -1)
                     }
                     context.sendBroadcast(errorIntent)
                 }
-            }, 3000)
+            }, 5000)
         }
     }
 
@@ -160,40 +78,58 @@ class TermuxClient(private val context: Context) {
                 else "❌ 测试失败：${if (stderr.isNotBlank()) stderr else stdout} (exit code: $exitCode)"
                 activity.runOnUiThread { activity.showTestResult(msg, success) }
             }
-
             activity.runOnUiThread {
-                activity.showTestResult("⏳ 正在唤醒 Termux...", false)
+                activity.showTestResult("⏳ 正在测试连接...", false)
             }
         }
 
-        if (wakeTermux()) {
+        if (tryRunCommand(buildWakeIntent())) {
             doTestIntent(activity)
-        } else {
-            activity?.runOnUiThread {
-                activity.showTestResult("ℹ️ 需要允许关联启动 Termux", false)
-                AlertDialog.Builder(activity)
-                    .setTitle("需要系统权限")
-                    .setMessage("ColorOS 拦截了 App 自动打开 Termux。\n\n请在系统设置中允许「Termux AI Agent」关联启动其他应用：\n\n设置 → 应用 → Termux AI Agent → 关联启动 → 打开「允许关联启动」\n\n完成后返回此页面，将自动重试。")
-                    .setPositiveButton("去设置") { _, _ ->
-                        activity.showTestResult("⏳ 请开启关联启动后返回", false)
-                        activity.pendingTest = true
-                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = Uri.parse("package:${context.packageName}")
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                        }
-                        try { context.startActivity(intent) } catch (_: Exception) {}
-                        activity.testTimeoutHandler.postDelayed({
-                            if (TestResultReceiver.pendingCallback != null) {
-                                TestResultReceiver.pendingCallback = null
-                                activity.pendingTest = false
-                                activity.showTestResult("❌ 连接超时：Termux 未响应", false)
-                            }
-                        }, 60000)
-                    }
-                    .setNegativeButton("取消", null)
-                    .show()
-            }
+            return
         }
+
+        activity?.runOnUiThread {
+            activity.showTestResult("⏳ 需要完成一次授权...", false)
+            AlertDialog.Builder(activity)
+                .setTitle("首次授权")
+                .setMessage("ColorOS 限制了 App 自动打开 Termux。\n\n点击下方按钮 → 在系统分享中选择「Termux」→ 系统会弹出授权弹窗 → 选择「始终允许」。\n\n只需一次，后续全程自动。")
+                .setPositiveButton("发送到 Termux") { _, _ ->
+                    activity.showTestResult("⏳ 在分享中选择 Termux 并允许", false)
+                    activity.pendingTest = true
+                    context.startActivity(Intent.createChooser(
+                        Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, "echo hello")
+                        },
+                        "发送到 Termux"
+                    ))
+                    activity.testTimeoutHandler.postDelayed({
+                        if (TestResultReceiver.pendingCallback != null) {
+                            TestResultReceiver.pendingCallback = null
+                            activity.pendingTest = false
+                            activity.showTestResult("❌ 连接超时：Termux 未响应", false)
+                        }
+                    }, 60000)
+                }
+                .setNegativeButton("取消", null)
+                .show()
+        }
+    }
+
+    private fun tryRunCommand(intent: Intent): Boolean {
+        return try {
+            context.startService(intent)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun buildWakeIntent(): Intent = Intent("com.termux.RUN_COMMAND").apply {
+        setClassName("com.termux", "com.termux.app.RunCommandService")
+        putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash")
+        putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", ": # wake"))
+        putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
     }
 
     private fun doTestIntent(activity: SettingsActivity?) {
@@ -204,20 +140,16 @@ class TermuxClient(private val context: Context) {
                 Intent(context, TestResultReceiver::class.java),
                 pendingIntentFlags()
             )
-
             val intent = Intent("com.termux.RUN_COMMAND").apply {
                 setClassName("com.termux", "com.termux.app.RunCommandService")
                 putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash")
                 putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", "echo hello"))
                 putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", pendingIntent)
             }
-
-            try {
-                context.startService(intent)
-            } catch (e: Exception) {
+            if (!tryRunCommand(intent)) {
                 TestResultReceiver.pendingCallback = null
                 activity?.runOnUiThread {
-                    activity.showTestResult("❌ 无法启动 Termux 服务：${e.message}", false)
+                    activity.showTestResult("❌ 无法启动 Termux 服务", false)
                 }
             }
         }, 2000)
