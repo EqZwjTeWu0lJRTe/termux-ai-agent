@@ -43,9 +43,29 @@ class TermuxClient(private val context: Context) {
 
     private fun wakeTermux(): Boolean {
         try {
-            val uri = Uri.parse("content://com.termux.files/")
-            context.contentResolver.query(uri, null, null, null, null)?.close()
-            Thread.sleep(300)
+            context.contentResolver.insert(
+                Uri.parse("content://com.termux.files/data/data/com.termux/files/home"),
+                null
+            )
+            Thread.sleep(2000)
+            try {
+                val intent = Intent("com.termux.RUN_COMMAND").apply {
+                    setClassName("com.termux", "com.termux.app.RunCommandService")
+                    putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash")
+                    putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", ": # wake"))
+                    putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
+                }
+                context.startService(intent)
+            } catch (_: Exception) {}
+            return true
+        } catch (_: Exception) {}
+
+        try {
+            context.contentResolver.query(
+                Uri.parse("content://com.termux.files/"),
+                null, null, null, null
+            )?.close()
+            Thread.sleep(2000)
             try {
                 val intent = Intent("com.termux.RUN_COMMAND").apply {
                     setClassName("com.termux", "com.termux.app.RunCommandService")
