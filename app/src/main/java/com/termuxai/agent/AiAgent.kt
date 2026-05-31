@@ -21,32 +21,34 @@ class AiAgent(context: Context) {
         private const val STATE_PREFS = "agent_state"
         private const val MAX_HISTORY = 10
 
-        private const val SYSTEM_PROMPT = """你是 Android 终端中的 AI 助手。用户的**大部分输入是想要执行命令**，你需要准确理解并执行。
+        private const val SYSTEM_PROMPT = """你是 Android 终端中的 AI 助手。理解用户意图并执行命令。
 
-## 输出格式（始终返回 JSON）
+## 严格规则：只输出 JSON，不要有任何多余文字
 
-### 用户想执行命令时 → command 模式
-{"command": "shell 命令", "need_confirm": false}
+### 执行命令
+{"command": "shell 命令", "need_confirm": false, "response": "用中文描述你要做什么"}
+- response 可选，用于告诉用户你在执行什么操作
 
-- need_confirm=true：危险操作（删除、格式化、覆盖文件等），先问用户再执行
-- 可直接使用 /system/bin/sh 支持的所有命令：ls, cd, pwd, mkdir, cp, mv, rm, cat, echo, grep, find, ps, top, df, du, pm, am, dumpsys, input, wm, settings 等
+### 多步骤任务
+{"steps": [{"cmd": "...", "desc": "..."}], "response": "说明整体任务"}
 
-### 任务需要多个步骤时 → steps 模式
-{"steps": [
-  {"cmd": "cd /sdcard/Download", "desc": "进入目录"},
-  {"cmd": "ls", "desc": "列出文件"}
-], "summary": "任务完成后的总结"}
-
-### 用户明显在闲聊/提问时 → response 模式
-{"response": "自然语言回答"}
+### 纯聊天/回答问题
+{"response": "回答"}
 
 ### 重置上下文
 {"clear_context": true}
 
+## Android 文件系统
+- 用户数据在 /sdcard 或 /storage/emulated/0
+- 常见目录：DCIM（照片）、Download（下载）、Documents（文档）
+
+## 找不到东西时
+1. 用 find /sdcard -name "关键词" 2>/dev/null 搜索
+2. 如实告知用户没找到，通过 response 说明搜索了什么
+
 ## 规则
-1. **优先执行命令**：除非用户明显在闲聊（问候、提问知识等），否则默认返回 command 或 steps
-2. 多步任务要合理拆分，cd 必须作为单独一步
-3. 用户确认后输入以【已确认】开头，此时不要返回 JSON，直接执行"""
+- 优先执行命令
+- 只输出 JSON，不加任何额外文字"""
     }
 
     private val statePrefs: SharedPreferences = context.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE)
@@ -139,12 +141,7 @@ class AiAgent(context: Context) {
         val choice = aiResp.optJSONArray("choices")?.optJSONObject(0)
         val rawContent = choice?.optJSONObject("message")?.optString("content", "") ?: ""
         Log.d(TAG, "message.content: $rawContent")
-        val content = try {
-            JSONObject(rawContent)
-        } catch (_: Exception) {
-            Log.w(TAG, "AI 返回非 JSON 内容，包装为 response")
-            JSONObject().apply { put("response", rawContent) }
-        }
+        val content = parseAiResponse(rawContent)
         Log.d(TAG, "解析后的 JSON: ${content.toString()}")
 
         if (content.optBoolean("clear_context", false)) {
@@ -172,6 +169,7 @@ class AiAgent(context: Context) {
                 put("output", out)
                 put("exit_code", code)
                 put("need_confirm", false)
+                content.optString("response", "").takeIf { it.isNotBlank() }?.let { put("response", it) }
             }
             updateCwd(command)
             return@withContext AgentResult(resultJson, content.toString())
@@ -246,6 +244,26 @@ class AiAgent(context: Context) {
 
     private fun readStream(stream: java.io.InputStream): String {
         return BufferedReader(InputStreamReader(stream)).readText().trim()
+    }
+
+    private fun parseAiResponse(raw: String): JSONObject {
+        try {
+            return JSONObject(raw)
+        } catch (_: Exception) {}
+
+        val jsonStart = raw.indexOf("{")
+        val jsonEnd = raw.lastIndexOf("}")
+        if (jsonStart >= 0 && jsonEnd > jsonStart) {
+            val extracted = raw.substring(jsonStart, jsonEnd + 1)
+            try {
+                val parsed = JSONObject(extracted)
+                Log.d(TAG, "从文本中提取到 JSON")
+                return parsed
+            } catch (_: Exception) {}
+        }
+
+        Log.w(TAG, "AI 返回非 JSON 内容，包装为 response")
+        return JSONObject().apply { put("response", raw.trim()) }
     }
 
     private fun saveToHistory(input: String, command: String, exitCode: Int, raw: String) {

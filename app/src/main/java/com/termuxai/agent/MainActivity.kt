@@ -137,15 +137,32 @@ class MainActivity : AppCompatActivity() {
         val response = json.optString("response", "")
         val steps = json.optJSONArray("steps")
 
-        if (response.isNotBlank()) return response
+        if (response.isNotBlank() && steps == null && command.isBlank()) return response
 
-        if (steps != null) {
-            return buildString {
+        return buildString {
+            if (response.isNotBlank()) {
+                appendLine(response)
+                appendLine()
+            }
+
+            if (command.isNotBlank()) {
+                appendLine("```bash")
+                appendLine(command)
+                appendLine("```")
+                if (output.isNotBlank()) {
+                    appendLine("```")
+                    appendLine(output.take(1000))
+                    appendLine("```")
+                } else {
+                    appendLine("> 命令已执行，无输出")
+                }
+            }
+
+            if (steps != null) {
                 for (i in 0 until steps.length()) {
                     val step = steps.getJSONObject(i)
                     val cmd = step.optString("cmd", "")
                     val out = step.optString("output", "")
-                    val code = step.optInt("exit_code", -1)
                     if (cmd.isNotBlank()) {
                         appendLine("**步骤 ${i+1}：**")
                         appendLine("```bash")
@@ -159,20 +176,6 @@ class MainActivity : AppCompatActivity() {
                         appendLine()
                     }
                 }
-            }
-        }
-
-        return buildString {
-            if (command.isNotBlank()) {
-                appendLine("```bash")
-                appendLine(command)
-                appendLine("```")
-                appendLine()
-            }
-            if (output.isNotBlank()) {
-                appendLine("```")
-                appendLine(output.take(1000))
-                appendLine("```")
             }
         }
     }
